@@ -1,0 +1,32 @@
+# =============================================================================
+# Lunula Bar - Wi-Fi & Connectivity Module Configuration
+# =============================================================================
+module: "wifi"
+enabled: true
+
+# Pilihan tema non-border:
+#   - "liquid_spire" : Tegangan permukaan -> kolom tinta memanjat naik -> kepala tetes -> konten
+#   - "sumi_cloud"   : Partikel emas berkumpul -> erupsi + haze tinta -> konten
+#   - "pure_hud"     : Kontrol mengambang minimalis dengan ambient shadow
+theme: "pure_hud"
+
+# Fisika animasi pegas (Spring Physics)
+spring:
+  stiffness: 160.0
+  damping: 15.0
+
+# Tipografi modular & hierarki font
+typography:
+  display_font: "Departure Mono"
+  body_font: "JetBrains Mono"
+  display_scale: 1.0
+  body_scale: 1.0
+
+# Pengaturan kontrol Konektivitas (Wi-Fi, Bluetooth, Flight Mode, Hotspot, Night Light)
+controls:
+  auto_scan: true
+  max_networks: 5
+  show_bluetooth: true
+  show_flight_mode: true
+  show_hotspot: true
+  show_night_light: true

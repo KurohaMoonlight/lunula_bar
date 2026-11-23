@@ -1,0 +1,31 @@
+# =============================================================================
+# Lunula Bar - Volume & Sound Output Module Configuration
+# =============================================================================
+module: "volume"
+enabled: true
+
+# Pilihan tema non-border:
+#   - "liquid_spire" : Tegangan permukaan -> kolom tinta memanjat naik -> kepala tetes -> konten
+#   - "sumi_cloud"   : Partikel emas berkumpul -> erupsi + haze tinta -> konten
+#   - "pure_hud"     : Kontrol mengambang minimalis dengan ambient shadow
+theme: "liquid_spire"
+
+# Fisika animasi pegas (Spring Physics)
+spring:
+  stiffness: 150.0
+  damping: 14.0
+
+# Tipografi modular & hierarki font
+typography:
+  display_font: "Departure Mono"
+  body_font: "JetBrains Mono"
+  display_scale: 1.0
+  body_scale: 1.0
+
+# Pengaturan kontrol Audio (Master Volume, Mute, Sound Output Device, Mic Mute, Spatial 3D)
+controls:
+  scroll_step: 0.05
+  show_percentage: true
+  show_output_devices: true
+  show_mic_mute: true
+  show_spatial_sound: true

@@ -1,0 +1,16 @@
+# =============================================================================
+# Lunula Bar - Start Menu Configuration
+# =============================================================================
+module: "start"
+enabled: true
+
+# Fisika pegas transisi Start Menu
+spring:
+  stiffness: 58.0
+  damping: 12.8
+
+# Gaya visual Start Menu
+archetype: "sakura"
+
+# Mode kualitas rendah untuk GPU terintegrasi
+low_quality: false

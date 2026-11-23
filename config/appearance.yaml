@@ -1,0 +1,25 @@
+# =============================================================================
+# Lunula Bar - Appearance, Typography & Flyout Visual Configuration
+# Tekan [R] di aplikasi untuk hot reload konfigurasi ini tanpa restart.
+# =============================================================================
+
+typography:
+  # Font utama untuk judul & angka (Space Grotesk)
+  display_font: "Space Grotesk"
+  # Font utama untuk label, SSID, perangkat Bluetooth, dan input password
+  body_font: "Space Grotesk"
+  # Skala teks (1.0 = normal)
+  display_scale: 1.0
+  body_scale: 1.0
+  # Penguat kontras teks terhadap latar gelap (0.8 .. 1.3)
+  contrast_boost: 1.05
+
+flyout_visual:
+  # Intensitas tekstur pasir / bintik emas di tepi & sudut (0.0 .. 1.5)
+  texture_intensity: 0.65
+  # Lebar outline emas dalam piksel logis (konsisten di semua DPI)
+  outline_width_px: 1.8
+  # Jarak dari tepi bentuk (px logis) tempat tekstur pasir memudar hingga 0 di area konten
+  texture_fade_px: 30.0
+  # Opasitas lapisan latar gelap tenang di belakang area konten teks & ikon (0.0 .. 1.0)
+  content_backdrop_alpha: 0.92

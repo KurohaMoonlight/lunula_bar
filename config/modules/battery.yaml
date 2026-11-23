@@ -1,0 +1,30 @@
+# =============================================================================
+# Lunula Bar - Battery & Power Module Configuration
+# =============================================================================
+module: "battery"
+enabled: true
+
+# Pilihan tema non-border:
+#   - "liquid_spire" : Tegangan permukaan -> kolom tinta memanjat naik -> kepala tetes -> konten
+#   - "sumi_cloud"   : Partikel emas berkumpul -> erupsi + haze tinta -> konten
+#   - "pure_hud"     : Kontrol mengambang minimalis dengan ambient shadow
+theme: "sumi_cloud"
+
+# Fisika animasi pegas (Spring Physics)
+spring:
+  stiffness: 70.0
+  damping: 12.0
+
+# Tipografi modular & hierarki font
+typography:
+  display_font: "Departure Mono"
+  body_font: "Zen Kaku Gothic New"
+  display_scale: 1.0
+  body_scale: 1.0
+
+# Pengaturan kontrol Baterai & Daya (Power Mode Eco/Balanced/Performance, Brightness, Energy Saver)
+controls:
+  show_time_remaining: true
+  power_plan_toggle: true
+  show_brightness_slider: true
+  show_energy_saver: true
