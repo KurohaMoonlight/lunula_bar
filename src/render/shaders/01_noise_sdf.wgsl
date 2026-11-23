@@ -45,6 +45,9 @@ fn sd_rounded_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
 }
 
 fn smin_cubic(a: f32, b: f32, k: f32) -> f32 {
+    if (k <= 0.001) {
+        return min(a, b);
+    }
     let h = max(k - abs(a - b), 0.0) / k;
     return min(a, b) - h * h * h * k * (1.0 / 6.0);
 }

@@ -12,6 +12,9 @@ pub struct StartMenuState {
     pub phase1_vel: f32,
     pub phase2_t: f32,
     pub phase2_vel: f32,
+    /// Fase 3: Pertumbuhan akar Sakura (pangkal gendut + bentangan 80% taskbar + akar menyelam)
+    pub root_grow_t: f32,
+    pub root_grow_vel: f32,
     /// Reaksi interaktif lilitan tombol Windows saat ditekan (mengencang sesaat lalu rileks via pegas YAML)
     pub win_cinch: f32,
     pub win_cinch_vel: f32,
@@ -38,6 +41,8 @@ impl StartMenuState {
             phase1_vel: 0.0,
             phase2_t: 0.0,
             phase2_vel: 0.0,
+            root_grow_t: 0.0,
+            root_grow_vel: 0.0,
             win_cinch: 0.0,
             win_cinch_vel: 0.0,
             win_flash: 0.0,
@@ -94,13 +99,7 @@ impl StartMenuState {
     }
 
     pub fn is_active(&self) -> bool {
-        self.open || self.phase1_t > 0.005 || self.phase2_t > 0.005
-    }
-
-    /// Tinggi dinamis pohon di atas bibir atas taskbar (`108px`) agar puncak kuncup mencapai 60% tinggi layar.
-    pub fn pillar_rise_px(screen_h: u32) -> f32 {
-        let target_total_h = (screen_h as f32) * 0.60;
-        (target_total_h - 108.0).max(260.0)
+        self.open || self.phase1_t > 0.005 || self.phase2_t > 0.005 || self.root_grow_t > 0.005
     }
 
     pub fn update(&mut self, dt: f32, cfg: &StartTreeConfig) {
@@ -152,24 +151,44 @@ impl StartMenuState {
             self.phase2_vel = self.phase2_vel.min(0.0);
         }
 
+        // Fase 3 (Sakura Roots Growth: Membuka Pangkal Gendut di Tengah & Menjalar ke Kiri/Kanan 80% Taskbar)
+        // Mulai mekar begitu benih tiba mendekati tengah layar (phase2_t > 0.72)
+        let p3_target = if self.open && self.phase2_t > 0.72 {
+            1.0
+        } else {
+            0.0
+        };
+        let (k3, d3) = if p3_target > 0.5 { (46.0, 12.0) } else { (75.0, 15.5) };
+        self.root_grow_vel += ((p3_target - self.root_grow_t) * k3 - self.root_grow_vel * d3) * dt;
+        self.root_grow_t += self.root_grow_vel * dt;
+        if self.root_grow_t < 0.0 {
+            self.root_grow_t = 0.0;
+            self.root_grow_vel = self.root_grow_vel.max(0.0);
+        } else if self.root_grow_t > 1.05 {
+            self.root_grow_t = 1.05;
+            self.root_grow_vel = self.root_grow_vel.min(0.0);
+        }
+
         // Tarikan partikel dinamis: kuat saat baru buka (~1.55), tenang saat idle (~0.58)
         let target_pull = if self.open { 1.55 } else { 0.58 };
         self.pull_activity += (target_pull - self.pull_activity) * (dt * 2.4).min(1.0);
 
-        if !self.open && self.phase1_t < 0.004 && self.phase1_vel.abs() < 0.05 && self.phase2_t < 0.004 {
+        if !self.open && self.phase1_t < 0.004 && self.phase1_vel.abs() < 0.05 && self.phase2_t < 0.004 && self.root_grow_t < 0.004 {
             self.phase1_t = 0.0;
             self.phase1_vel = 0.0;
             self.phase2_t = 0.0;
             self.phase2_vel = 0.0;
+            self.root_grow_t = 0.0;
+            self.root_grow_vel = 0.0;
         }
     }
 
-    /// `[phase1_t, phase2_t, pillar_rise_px, win_cinch]`
-    pub fn uniform_vec(&self, screen_h: u32) -> [f32; 4] {
+    /// `[phase1_t, phase2_t, root_grow_t, win_cinch]`
+    pub fn uniform_vec(&self, _screen_h: u32) -> [f32; 4] {
         [
             self.phase1_t.clamp(0.0, 1.05),
             self.phase2_t.clamp(0.0, 1.06),
-            Self::pillar_rise_px(screen_h),
+            self.root_grow_t.clamp(0.0, 1.05),
             self.win_cinch,
         ]
     }

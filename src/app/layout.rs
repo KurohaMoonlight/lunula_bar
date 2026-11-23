@@ -1,4 +1,3 @@
-use crate::flyout::start_menu::StartMenuState;
 use crate::flyout::{
     ActiveFlyout, FlyoutManager, CHAIN_MAIN_TO_SUB, CHAIN_SUB_TO_SUB, FLY_HALF_H, FLY_HALF_W,
     FLY_RISE, SUB_HALF_H, SUB_HALF_W, SUB_OFFSET_Y,
@@ -17,6 +16,7 @@ pub fn tray_center_x(screen_w: u32) -> f32 {
     bar_right - 196.0
 }
 
+#[allow(dead_code)]
 pub fn win_button_x(screen_w: u32) -> f32 {
     let cx = (screen_w as f32) * 0.5;
     let bar_width = (screen_w as f32) * 0.50;
@@ -102,22 +102,20 @@ pub fn compute_hit_zones(
             head_y_screen as i32,
         ))
     } else if mgr.start.is_active() && mgr.start.phase2_t > 0.005 {
-        // Region mengikuti bentuk pohon Fukinagashi yang condong ke kanan + padding luas (> glow radius)
-        // agar TIDAK PERNAH ada tepi kotak/glow terpotong.
-        let wx = win_button_x(screen_w);
-        let bar_top_screen = (screen_h as f32) - 108.0;
-        let full_rise = StartMenuState::pillar_rise_px(screen_h);
-        let cur_rise = full_rise * mgr.start.phase2_t.clamp(0.0, 1.05);
-        let lean_right = full_rise * 0.44 + 135.0;
-        let top_screen = (bar_top_screen - cur_rise - 96.0).max(window_top);
-        let bot_screen = bar_top_screen + 16.0;
-        let mid_y = (top_screen + bot_screen) * 0.5;
+        // Hit-test region untuk Sakura Start Menu:
+        // Mencakup sepanjang bentangan ombak taskbar dengan margin 35px di atas bibir untuk pangkal & serabut akar
+        let bar_w = (screen_w as f32) * 0.50;
+        let bar_l = ((screen_w as f32) - bar_w) * 0.5;
+        let bar_top_screen = (screen_h as f32) - 135.0;
+        let bot_screen = (screen_h as f32) + 16.0;
+        let mid_y = (bar_top_screen + bot_screen) * 0.5;
+        let cx = (screen_w as f32) * 0.5;
         Some((
-            top_screen as i32,
+            bar_top_screen as i32,
             bot_screen as i32,
-            (wx - 95.0).max(0.0) as i32,
-            (wx + lean_right).min(screen_w as f32) as i32,
-            (wx + lean_right * 0.35) as i32,
+            (bar_l - 24.0).max(0.0) as i32,
+            (bar_l + bar_w + 24.0).min(screen_w as f32) as i32,
+            cx as i32,
             mid_y as i32,
         ))
     } else {

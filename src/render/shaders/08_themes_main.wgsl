@@ -628,6 +628,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     tracer_col = seed_res.rgb;
     tracer_alpha = seed_res.a;
 
+    // Render Sakura Nebari Roots (Pangkal Gendut di Tengah + Bentangan 80% Kiri/Kanan + Akar Menyelam)
+    let g_root = clamp(u.start_info.z, 0.0, 1.05);
+    let root_res = render_sakura_roots(
+        p,
+        cx,
+        half_w,
+        bar_left,
+        bottom_y,
+        smooth_t,
+        overshoot,
+        g_root,
+        u.time,
+        tracer_col,
+        tracer_alpha
+    );
+    tracer_col = root_res.rgb;
+    tracer_alpha = root_res.a;
+
     let final_alpha = max(tracer_alpha, fly_res.alpha);
     if (final_alpha <= 0.001) {
         discard;
