@@ -188,6 +188,37 @@ impl ApplicationHandler for App {
                     return;
                 }
 
+                // Input Keyboard untuk Zen Search Pill (Start Menu aktif)
+                if self.flyout_mgr.start.is_active() && self.flyout_mgr.start.open {
+                    match physical_key {
+                        PhysicalKey::Code(KeyCode::Escape) => {
+                            if !self.flyout_mgr.start.search_query.is_empty() {
+                                self.flyout_mgr.start.clear_search();
+                            } else {
+                                self.flyout_mgr.start.close();
+                            }
+                            return;
+                        }
+                        PhysicalKey::Code(KeyCode::Backspace) => {
+                            self.flyout_mgr.start.handle_search_backspace();
+                            return;
+                        }
+                        PhysicalKey::Code(KeyCode::Enter)
+                        | PhysicalKey::Code(KeyCode::NumpadEnter) => {
+                            // Reserved untuk eksekusi hasil pencarian (Tahap 2)
+                            return;
+                        }
+                        _ => {
+                            if let Some(txt) = text {
+                                for ch in txt.chars() {
+                                    self.flyout_mgr.start.handle_search_char(ch);
+                                }
+                                return;
+                            }
+                        }
+                    }
+                }
+
                 match physical_key {
                     PhysicalKey::Code(KeyCode::Escape) => {
                         if self.flyout_mgr.start.open {
@@ -471,10 +502,20 @@ impl ApplicationHandler for App {
             };
 
             let (disp_scale, body_scale) = self.flyout_mgr.active_scales();
-            let elapsed = renderer.elapsed_secs();
-            let text_entries = self
-                .flyout_mgr
-                .build_text_entries(flyout_center_x, wy, elapsed);
+            let text_entries = if self.flyout_mgr.is_open() {
+                let elapsed = renderer.elapsed_secs();
+                self.flyout_mgr.build_text_entries(flyout_center_x, wy, elapsed)
+            } else if self.flyout_mgr.start.is_active() && self.flyout_mgr.start.search_pill_t > 0.01 {
+                let elapsed = renderer.elapsed_secs();
+                let (pill_cx, pill_cy) = layout::search_pill_center_local(
+                    self.screen_w,
+                    self.window_h,
+                    self.flyout_mgr.start.search_pill_t,
+                );
+                self.flyout_mgr.start.build_search_text_entries(pill_cx, pill_cy, elapsed)
+            } else {
+                Vec::new()
+            };
 
             renderer.update_animation(
                 self.current_anim,

@@ -16,7 +16,13 @@ use crate::platform::power::{get_battery_info, BatteryInfo};
 use crate::platform::system_ctrl::{
     query_active_power_mode, query_wifi_status, PowerMode, SoundOutput,
 };
+use std::sync::mpsc;
 use types::*;
+
+enum SystemProbeMsg {
+    Power(PowerMode),
+    Wifi(bool, f32),
+}
 
 pub struct FlyoutManager {
     pub config: ModulesConfig,
@@ -88,6 +94,10 @@ pub struct FlyoutManager {
 
     // Active drag state
     pub dragging: DragTarget,
+
+    // Async system probe channel (prevents powercfg/netsh from blocking startup or clicks)
+    probe_tx: mpsc::Sender<SystemProbeMsg>,
+    probe_rx: mpsc::Receiver<SystemProbeMsg>,
 }
 
 impl FlyoutManager {
@@ -95,8 +105,19 @@ impl FlyoutManager {
         let config = ModulesConfig::load();
         let start = start_menu::StartMenuState::new(&config.start);
         let battery_info = get_battery_info();
-        let power_mode = query_active_power_mode();
-        let (wifi_enabled, wifi_signal) = query_wifi_status();
+        let (probe_tx, probe_rx) = mpsc::channel();
+        // Query powercfg & netsh on a background thread so the taskbar appears immediately!
+        {
+            let tx = probe_tx.clone();
+            std::thread::spawn(move || {
+                let pm = query_active_power_mode();
+                let _ = tx.send(SystemProbeMsg::Power(pm));
+                let (w_on, w_sig) = query_wifi_status();
+                let _ = tx.send(SystemProbeMsg::Wifi(w_on, w_sig));
+            });
+        }
+        let power_mode = PowerMode::Balanced;
+        let (wifi_enabled, wifi_signal) = (true, 0.88);
 
         Self {
             config,
@@ -172,6 +193,8 @@ impl FlyoutManager {
 
             start,
             dragging: DragTarget::None,
+            probe_tx,
+            probe_rx,
         }
     }
 
@@ -223,17 +246,17 @@ impl FlyoutManager {
         match target {
             ActiveFlyout::Battery => {
                 self.battery_info = get_battery_info();
-                self.power_mode = query_active_power_mode();
+                let tx = self.probe_tx.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send(SystemProbeMsg::Power(query_active_power_mode()));
+                });
             }
             ActiveFlyout::Wifi => {
-                let (on, sig) = query_wifi_status();
-                if !self.flight_mode {
-                    self.wifi_enabled = on;
-                    self.wifi_signal = sig;
-                    if let Some(first) = self.wifi_networks.first_mut() {
-                        first.signal = sig;
-                    }
-                }
+                let tx = self.probe_tx.clone();
+                std::thread::spawn(move || {
+                    let (on, sig) = query_wifi_status();
+                    let _ = tx.send(SystemProbeMsg::Wifi(on, sig));
+                });
             }
             _ => {}
         }
@@ -299,6 +322,20 @@ impl FlyoutManager {
     }
 
     pub fn update(&mut self, dt: f32) {
+        while let Ok(msg) = self.probe_rx.try_recv() {
+            match msg {
+                SystemProbeMsg::Power(pm) => self.power_mode = pm,
+                SystemProbeMsg::Wifi(on, sig) => {
+                    if !self.flight_mode {
+                        self.wifi_enabled = on;
+                        self.wifi_signal = sig;
+                        if let Some(first) = self.wifi_networks.first_mut() {
+                            first.signal = sig;
+                        }
+                    }
+                }
+            }
+        }
         let rate = (dt * 14.0).min(1.0);
         let lerp_to = |cur: &mut f32, on: bool| {
             let tgt = if on { 1.0 } else { 0.0 };

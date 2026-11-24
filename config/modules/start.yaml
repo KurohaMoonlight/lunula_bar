@@ -12,5 +12,19 @@ spring:
 # Gaya visual Start Menu
 archetype: "sakura"
 
-# Mode kualitas rendah untuk GPU terintegrasi
+# Konfigurasi Bunga Sakura & Estetika Tradisional Jepang (Langkah 4)
+blossom:
+  enabled: true           # Aktifkan bunga sakura di pohon
+  density: 1.0            # Kepadatan mekar bunga (0.5 = anggun minimalis, 1.0 = mekar lebat, 1.5 = sangat rimbun)
+  hanafubuki: true        # Guguran kelopak bunga melayang tertiup angin
+  stamen_gold: 1.0        # Intensitas kilau emas 24K pada putik bunga (0.0 .. 2.0)
+  sumi_ink: 1.0           # Ketebalan kontur kuas kaligrafi tinta sumi-e (0.0 .. 2.0)
+
+# Parameter fisik pohon & dahan
+trunk_thickness: 1.48     # Ketebalan batang utama
+trunk_lean: 0.44          # Kemiringan batang fukinagashi
+
+# Partikel & Kualitas GPU
+particle_count: 44
+particle_pull: 1.0
 low_quality: false

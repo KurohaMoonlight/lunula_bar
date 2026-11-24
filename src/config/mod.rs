@@ -134,6 +134,40 @@ impl Default for TrunkStyle {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct BlossomConfig {
+    #[serde(default = "default_blossom_bool")]
+    pub enabled: bool,
+    #[serde(default = "default_blossom_one")]
+    pub density: f32,
+    #[serde(default = "default_blossom_bool")]
+    pub hanafubuki: bool,
+    #[serde(default = "default_blossom_one")]
+    #[allow(dead_code)]
+    pub stamen_gold: f32,
+    #[serde(default = "default_blossom_one")]
+    pub sumi_ink: f32,
+}
+
+fn default_blossom_bool() -> bool {
+    true
+}
+fn default_blossom_one() -> f32 {
+    1.0
+}
+
+impl Default for BlossomConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            density: 1.0,
+            hanafubuki: true,
+            stamen_gold: 1.0,
+            sumi_ink: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct StartTreeConfig {
     #[serde(default = "default_start_spring")]
     pub spring: SpringConfig,
@@ -143,9 +177,13 @@ pub struct StartTreeConfig {
     #[serde(default = "default_trunk_thickness")]
     pub trunk_thickness: f32,
     #[serde(default = "default_trunk_lean")]
+    #[allow(dead_code)]
     pub trunk_lean: f32,
     #[serde(default = "default_soul_leaves")]
+    #[allow(dead_code)]
     pub soul_leaves: f32,
+    #[serde(default)]
+    pub blossom: BlossomConfig,
     #[serde(default = "default_root_seed")]
     pub root_seed: u64,
     #[serde(default = "default_particle_count")]
@@ -189,6 +227,7 @@ impl Default for StartTreeConfig {
             trunk_thickness: default_trunk_thickness(),
             trunk_lean: default_trunk_lean(),
             soul_leaves: default_soul_leaves(),
+            blossom: BlossomConfig::default(),
             root_seed: default_root_seed(),
             particle_count: default_particle_count(),
             particle_pull: default_particle_pull(),

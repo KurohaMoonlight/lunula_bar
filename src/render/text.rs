@@ -1,3 +1,4 @@
+use std::sync::mpsc;
 use glyphon::{
     Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Weight,
@@ -5,7 +6,7 @@ use glyphon::{
 use glyphon::cosmic_text::Align;
 
 /// Satu item teks yang akan dirender di atas flyout / sub-flyout pada frame saat ini.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextEntry {
     pub text: String,
     pub x: f32,
@@ -79,7 +80,8 @@ impl TextEntry {
 }
 
 pub struct FlyoutTextLayer {
-    font_system: FontSystem,
+    font_system: Option<FontSystem>,
+    font_rx: Option<mpsc::Receiver<FontSystem>>,
     swash_cache: SwashCache,
     #[allow(dead_code)]
     cache: Cache,
@@ -89,6 +91,8 @@ pub struct FlyoutTextLayer {
     buffers: Vec<Buffer>,
     entries: Vec<TextEntry>,
     font_family: String,
+    dirty: bool,
+    needs_trim: bool,
 }
 
 impl FlyoutTextLayer {
@@ -100,7 +104,14 @@ impl FlyoutTextLayer {
         height: u32,
         font_family: &str,
     ) -> Self {
-        let font_system = FontSystem::new();
+        // Scan direktori font sistem di background thread agar taskbar langsung tampil
+        // tanpa menunggu 2–5 detik pemindaian C:\Windows\Fonts saat startup!
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let fs = FontSystem::new();
+            let _ = tx.send(fs);
+        });
+
         let swash_cache = SwashCache::new();
         let cache = Cache::new(device);
         let mut viewport = Viewport::new(device, &cache);
@@ -120,7 +131,8 @@ impl FlyoutTextLayer {
         );
 
         Self {
-            font_system,
+            font_system: None,
+            font_rx: Some(rx),
             swash_cache,
             cache,
             viewport,
@@ -129,12 +141,27 @@ impl FlyoutTextLayer {
             buffers: Vec::with_capacity(48),
             entries: Vec::with_capacity(48),
             font_family: font_family.to_string(),
+            dirty: true,
+            needs_trim: false,
+        }
+    }
+
+    fn poll_font_system(&mut self) {
+        if self.font_system.is_none() {
+            if let Some(rx) = &self.font_rx {
+                if let Ok(fs) = rx.try_recv() {
+                    self.font_system = Some(fs);
+                    self.font_rx = None;
+                    self.dirty = true;
+                }
+            }
         }
     }
 
     pub fn set_font_family(&mut self, font_family: &str) {
         if self.font_family != font_family {
             self.font_family = font_family.to_string();
+            self.dirty = true;
         }
     }
 
@@ -146,6 +173,7 @@ impl FlyoutTextLayer {
                 height: height.max(1),
             },
         );
+        self.dirty = true;
     }
 
     pub fn prepare(
@@ -154,12 +182,46 @@ impl FlyoutTextLayer {
         queue: &wgpu::Queue,
         entries: Vec<TextEntry>,
     ) {
-        self.entries = entries;
-        let needed = self.entries.len();
+        self.poll_font_system();
 
+        // Fast-path: tidak ada teks yang perlu dirender saat flyout tertutup
+        if entries.is_empty() && self.entries.is_empty() {
+            return;
+        }
+
+        // Dirty-check: lewati re-shaping HarfBuzz/cosmic-text & upload atlas jika teks identik!
+        if !self.dirty && self.entries == entries {
+            return;
+        }
+
+        let Some(font_system) = self.font_system.as_mut() else {
+            // FontSystem masih memuat di background; simpan entries agar langsung diproses saat siap
+            self.entries = entries;
+            self.dirty = true;
+            return;
+        };
+
+        self.entries = entries;
+        self.dirty = false;
+        self.needs_trim = true;
+
+        if self.entries.is_empty() {
+            let _ = self.renderer.prepare(
+                device,
+                queue,
+                font_system,
+                &mut self.atlas,
+                &self.viewport,
+                std::iter::empty(),
+                &mut self.swash_cache,
+            );
+            return;
+        }
+
+        let needed = self.entries.len();
         while self.buffers.len() < needed {
             self.buffers.push(Buffer::new(
-                &mut self.font_system,
+                font_system,
                 Metrics::new(14.0, 18.0),
             ));
         }
@@ -196,7 +258,7 @@ impl FlyoutTextLayer {
             };
 
             buf.set_text(&entry.text, &attrs, Shaping::Advanced, align);
-            buf.shape_until_scroll(&mut self.font_system, false);
+            buf.shape_until_scroll(font_system, false);
         }
 
         let areas: Vec<TextArea<'_>> = self
@@ -227,7 +289,7 @@ impl FlyoutTextLayer {
         let _ = self.renderer.prepare(
             device,
             queue,
-            &mut self.font_system,
+            font_system,
             &mut self.atlas,
             &self.viewport,
             areas,
@@ -236,12 +298,15 @@ impl FlyoutTextLayer {
     }
 
     pub fn render<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
-        if !self.entries.is_empty() {
+        if self.font_system.is_some() && !self.entries.is_empty() {
             let _ = self.renderer.render(&self.atlas, &self.viewport, pass);
         }
     }
 
     pub fn trim(&mut self) {
-        self.atlas.trim();
+        if self.needs_trim {
+            self.atlas.trim();
+            self.needs_trim = false;
+        }
     }
 }

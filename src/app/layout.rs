@@ -5,8 +5,8 @@ use crate::flyout::{
 
 /// Tinggi dinamis jendela transparan: selalu muat untuk Pilar AOT 60% layar + margin aura atas.
 pub fn dynamic_window_height(screen_h: u32) -> u32 {
-    let target = ((screen_h as f32) * 0.72).round() as u32;
-    target.max(640).min(screen_h)
+    let target = ((screen_h as f32) * 0.88).round() as u32;
+    target.max(760).min(screen_h)
 }
 
 pub fn tray_center_x(screen_w: u32) -> f32 {
@@ -36,6 +36,22 @@ pub fn active_flyout_center_x(screen_w: u32, active: ActiveFlyout) -> f32 {
 pub fn widget_y(window_h: u32) -> f32 {
     let area_h = window_h as f32;
     (area_h - 108.0) + 108.0 * 0.46
+}
+
+/// Koordinat pusat (cx, cy) lokal-window untuk Zen Search Pill.
+/// Rumus identik 1:1 dengan `get_search_pill_rest_center` & `render_zen_search_pill` di `09_start_roots.wgsl`.
+pub fn search_pill_center_local(screen_w: u32, window_h: u32, search_pill_t: f32) -> (f32, f32) {
+    let cx = (screen_w as f32) * 0.5;
+    let half_w = (screen_w as f32) * 0.25; // bar_width = screen_w * 0.50 -> half_w = screen_w * 0.25
+    let sx = (half_w / 450.0) * 1.28;
+    let lip_center_y = (window_h as f32) - 108.0;
+    let h_fork = (window_h as f32) * 0.42;
+    let t = search_pill_t.clamp(0.0, 1.0);
+    let t_sc = t * t * (3.0 - 2.0 * t); // smoothstep(0.0, 1.0, t)
+    let rise = (1.0 - t_sc) * 16.0;
+    let pill_cx = cx + (185.0 * sx).max(205.0);
+    let pill_cy = lip_center_y - h_fork * 0.28 + rise;
+    (pill_cx, pill_cy)
 }
 
 pub fn calculate_chain_offsets(screen_w: u32, fly_cx: f32) -> (f32, f32, bool) {
@@ -101,25 +117,22 @@ pub fn compute_hit_zones(
             flyout_center_x as i32,
             head_y_screen as i32,
         ))
-    } else if mgr.start.is_active() && mgr.start.phase2_t > 0.005 {
-        // Hit-test region untuk Sakura Start Menu:
-        // Mencakup sepanjang bentangan ombak taskbar dengan ruang 50% tinggi layar di atas bibir untuk batang utama
-        let bar_w = (screen_w as f32) * 0.50;
-        let bar_l = ((screen_w as f32) - bar_w) * 0.5;
-        let stump_h = (screen_h as f32) * 0.50;
-        let bar_top_screen = (screen_h as f32) - 108.0 - stump_h - 40.0;
-        let bot_screen = (screen_h as f32) + 16.0;
-        let mid_y = (bar_top_screen + bot_screen) * 0.5;
-        let cx = (screen_w as f32) * 0.5;
+    } else if mgr.start.is_active() && mgr.start.search_pill_t > 0.05 {
+        // Hit-test khusus untuk Tinted Sumi Search Pill di dahan kanan (500x56 px)
+        // Sinkron 1:1 dengan shader via search_pill_center_local; area luar tetap HTTRANSPARENT!
+        let (pill_cx, pill_cy_local) =
+            search_pill_center_local(screen_w, window_h, mgr.start.search_pill_t);
+        let pill_cy = window_top + pill_cy_local;
         Some((
-            bar_top_screen as i32,
-            bot_screen as i32,
-            (bar_l - 24.0).max(0.0) as i32,
-            (bar_l + bar_w + 24.0).min(screen_w as f32) as i32,
-            cx as i32,
-            mid_y as i32,
+            (pill_cy - 30.0) as i32,
+            (pill_cy + 30.0) as i32,
+            (pill_cx - 256.0) as i32,
+            (pill_cx + 256.0) as i32,
+            pill_cx as i32,
+            pill_cy as i32,
         ))
     } else {
+        // Area pohon sakura di luar pill bersifat ambient transparan (100% click-through)
         None
     };
 

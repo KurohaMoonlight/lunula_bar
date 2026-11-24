@@ -1,4 +1,5 @@
 use crate::config::StartTreeConfig;
+use crate::render::text::TextEntry;
 use super::start_roots::{generate_procedural_roots, RootSegGpu, MAX_ROOT_SEGS};
 
 /// State & fisika untuk Start Menu (Fukinagashi Bonsai Kanagawa Tree):
@@ -33,6 +34,15 @@ pub struct StartMenuState {
     pub roots_dirty: bool,
     last_seed: u64,
     last_low_quality: bool,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TAHAP 1: LUXURY ZEN SEARCH PILL (Kintsugi & Urushi Lacquer Search Bar)
+    // ─────────────────────────────────────────────────────────────────────────
+    pub search_query: String,
+    pub search_cursor: usize,
+    pub search_pill_t: f32,
+    pub search_pill_vel: f32,
+    pub cursor_blink: f32,
 }
 
 impl StartMenuState {
@@ -58,6 +68,11 @@ impl StartMenuState {
             roots_dirty: true,
             last_seed: cfg.root_seed,
             last_low_quality: cfg.low_quality,
+            search_query: String::new(),
+            search_cursor: 0,
+            search_pill_t: 0.0,
+            search_pill_vel: 0.0,
+            cursor_blink: 0.0,
         }
     }
 
@@ -121,80 +136,93 @@ impl StartMenuState {
             self.win_ripple = (self.win_ripple + dt * 1.55).min(1.0);
         }
 
-        // Fase 1 (Search Pill Absorption ke Tombol Windows)
-        let p1_target = if self.open {
-            1.0
-        } else {
-            0.0
-        };
-        let (k1, d1) = if p1_target > 0.5 { (76.0, 14.0) } else { (90.0, 15.5) };
-        self.phase1_vel += ((p1_target - self.phase1_t) * k1 - self.phase1_vel * d1) * dt;
-        self.phase1_t += self.phase1_vel * dt;
-        if self.phase1_t < 0.0 {
-            self.phase1_t = 0.0;
-            self.phase1_vel = self.phase1_vel.max(0.0);
-        } else if self.phase1_t > 1.05 {
-            self.phase1_t = 1.05;
-            self.phase1_vel = self.phase1_vel.min(0.0);
-        }
+        // ─────────────────────────────────────────────────────────────────────
+        // KOREOGRAFI ANIMASI IN & OUT SEKUENSIAL (Reverse Botanical Cascade)
+        // IN:  Search Pill -> Seed Tracer -> Nebari Roots -> Staged Sakura Tree
+        // OUT: Sakura Tree -> Nebari Roots -> Seed Tracer -> Search Pill
+        // ─────────────────────────────────────────────────────────────────────
 
-        // Fase 2 (Sakura Seed Outline Tracer: Meluncur dari Tombol Windows ke Tengah)
-        // Mulai meluncur saat search pill sudah terserap ke tombol Windows (phase1_t > 0.38)
-        let p2_target = if self.open && self.phase1_t > 0.38 {
-            1.0
+        // Fase 4 (Pohon Sakura: Tumbuh cepat saat akar mulai mekar, surut cepat dan teratur saat OUT)
+        let p4_target = if self.open {
+            if self.root_grow_t > 0.15 { 1.0 } else { 0.0 }
         } else {
             0.0
         };
-        let (k2, d2) = if p2_target > 0.5 { (52.0, 13.5) } else { (85.0, 16.5) };
-        self.phase2_vel += ((p2_target - self.phase2_t) * k2 - self.phase2_vel * d2) * dt;
-        self.phase2_t += self.phase2_vel * dt;
-        if self.phase2_t < 0.0 {
-            self.phase2_t = 0.0;
-            self.phase2_vel = self.phase2_vel.max(0.0);
-        } else if self.phase2_t > 1.05 {
-            self.phase2_t = 1.05;
-            self.phase2_vel = self.phase2_vel.min(0.0);
-        }
-
-        // Fase 3 (Sakura Roots Growth: Membuka Pangkal Gendut di Tengah & Menjalar ke Kiri/Kanan 80% Taskbar)
-        // Mulai mekar begitu benih tiba mendekati tengah layar (phase2_t > 0.72)
-        let p3_target = if self.open && self.phase2_t > 0.72 {
-            1.0
-        } else {
-            0.0
-        };
-        let (k3, d3) = if p3_target > 0.5 { (46.0, 12.0) } else { (75.0, 15.5) };
-        self.root_grow_vel += ((p3_target - self.root_grow_t) * k3 - self.root_grow_vel * d3) * dt;
-        self.root_grow_t += self.root_grow_vel * dt;
-        if self.root_grow_t < 0.0 {
-            self.root_grow_t = 0.0;
-            self.root_grow_vel = self.root_grow_vel.max(0.0);
-        } else if self.root_grow_t > 1.05 {
-            self.root_grow_t = 1.05;
-            self.root_grow_vel = self.root_grow_vel.min(0.0);
-        }
-
-        // Fase 4 (Sakura Stump Growth: Tumbuh tunggul batang kokoh setinggi 10% layar di tengah)
-        // Mulai tumbuh begitu akar sudah mulai mencengkeram (root_grow_t > 0.40)
-        let p4_target = if self.open && self.root_grow_t > 0.40 {
-            1.0
-        } else {
-            0.0
-        };
-        let (k4, d4) = if p4_target > 0.5 { (42.0, 11.5) } else { (68.0, 15.0) };
+        let (k4, d4) = if p4_target > 0.5 { (62.0, 13.8) } else { (78.0, 15.6) };
         self.stump_grow_vel += ((p4_target - self.stump_grow_t) * k4 - self.stump_grow_vel * d4) * dt;
         self.stump_grow_t += self.stump_grow_vel * dt;
         if self.stump_grow_t < 0.0 {
             self.stump_grow_t = 0.0;
             self.stump_grow_vel = self.stump_grow_vel.max(0.0);
-        } else if self.stump_grow_t > 1.05 {
-            self.stump_grow_t = 1.05;
+        } else if self.stump_grow_t > 1.04 {
+            self.stump_grow_t = 1.04;
             self.stump_grow_vel = self.stump_grow_vel.min(0.0);
+        }
+
+        // Fase 3 (Akar Nebari: Mekar mengalir bersama seed saat IN, surut saat OUT)
+        let p3_target = if self.open {
+            if self.phase2_t > 0.35 { 1.0 } else { 0.0 }
+        } else {
+            0.0
+        };
+        let (k3, d3) = if p3_target > 0.5 { (68.0, 14.2) } else { (82.0, 16.0) };
+        self.root_grow_vel += ((p3_target - self.root_grow_t) * k3 - self.root_grow_vel * d3) * dt;
+        self.root_grow_t += self.root_grow_vel * dt;
+        if self.root_grow_t < 0.0 {
+            self.root_grow_t = 0.0;
+            self.root_grow_vel = self.root_grow_vel.max(0.0);
+        } else if self.root_grow_t > 1.04 {
+            self.root_grow_t = 1.04;
+            self.root_grow_vel = self.root_grow_vel.min(0.0);
+        }
+
+        // Fase 2 (Sakura Seed Tracer: Meluncur sigap ke tengah saat IN, kembali saat OUT)
+        let p2_target = if self.open {
+            if self.phase1_t > 0.18 { 1.0 } else { 0.0 }
+        } else {
+            0.0
+        };
+        let (k2, d2) = if p2_target > 0.5 { (74.0, 14.8) } else { (90.0, 16.8) };
+        self.phase2_vel += ((p2_target - self.phase2_t) * k2 - self.phase2_vel * d2) * dt;
+        self.phase2_t += self.phase2_vel * dt;
+        if self.phase2_t < 0.0 {
+            self.phase2_t = 0.0;
+            self.phase2_vel = self.phase2_vel.max(0.0);
+        } else if self.phase2_t > 1.04 {
+            self.phase2_t = 1.04;
+            self.phase2_vel = self.phase2_vel.min(0.0);
+        }
+
+        // Fase 1 (Search Pill Absorption: Langsung terpicu saat IN, kembali anggun saat OUT)
+        let p1_target = if self.open {
+            1.0
+        } else {
+            0.0
+        };
+        let (k1, d1) = if p1_target > 0.5 { (82.0, 15.2) } else { (94.0, 17.2) };
+        self.phase1_vel += ((p1_target - self.phase1_t) * k1 - self.phase1_vel * d1) * dt;
+        self.phase1_t += self.phase1_vel * dt;
+        if self.phase1_t < 0.0 {
+            self.phase1_t = 0.0;
+            self.phase1_vel = self.phase1_vel.max(0.0);
+        } else if self.phase1_t > 1.04 {
+            self.phase1_t = 1.04;
+            self.phase1_vel = self.phase1_vel.min(0.0);
         }
 
         // Tarikan partikel dinamis: kuat saat baru buka (~1.55), tenang saat idle (~0.58)
         let target_pull = if self.open { 1.55 } else { 0.58 };
         self.pull_activity += (target_pull - self.pull_activity) * (dt * 2.4).min(1.0);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // FASE SEARCH PILL (Mekar anggun saat dahan mencapai ketinggian, surut cepat saat tutup)
+        // ─────────────────────────────────────────────────────────────────────
+        let pill_target = if self.open && self.stump_grow_t > 0.22 { 1.0 } else { 0.0 };
+        let (k_pill, d_pill) = if pill_target > 0.5 { (64.0, 13.8) } else { (80.0, 16.0) };
+        self.search_pill_vel += ((pill_target - self.search_pill_t) * k_pill - self.search_pill_vel * d_pill) * dt;
+        self.search_pill_t = (self.search_pill_t + self.search_pill_vel * dt).clamp(0.0, 1.05);
+
+        self.cursor_blink += dt;
 
         if !self.open && self.phase1_t < 0.004 && self.phase1_vel.abs() < 0.05 && self.phase2_t < 0.004 && self.root_grow_t < 0.004 && self.stump_grow_t < 0.004 {
             self.phase1_t = 0.0;
@@ -205,6 +233,10 @@ impl StartMenuState {
             self.root_grow_vel = 0.0;
             self.stump_grow_t = 0.0;
             self.stump_grow_vel = 0.0;
+            self.search_pill_t = 0.0;
+            self.search_pill_vel = 0.0;
+            self.search_query.clear();
+            self.search_cursor = 0;
         }
     }
 
@@ -220,37 +252,114 @@ impl StartMenuState {
 
     /// `[root_seg_count, particle_count, particle_pull, low_quality_flag]`
     pub fn tree_params_vec(&self, cfg: &StartTreeConfig) -> [f32; 4] {
-        let p_cnt = if cfg.low_quality {
-            cfg.particle_count.min(20)
+        let p_cnt = if !cfg.blossom.hanafubuki {
+            0.0
+        } else if cfg.low_quality {
+            cfg.particle_count.min(20) as f32
         } else {
-            cfg.particle_count.clamp(8, 64)
+            cfg.particle_count.clamp(8, 64) as f32
         };
         [
             self.root_seg_count as f32,
-            p_cnt as f32,
+            p_cnt,
             cfg.particle_pull.clamp(0.2, 2.5),
             if cfg.low_quality { 1.0 } else { 0.0 },
         ]
     }
 
-    /// `[stump_grow_t, trunk_thickness, trunk_lean, soul_leaves]`
+    /// `[stump_grow_t, trunk_thickness, sumi_ink, blossom_density]`
     pub fn tree_style_vec(&self, cfg: &StartTreeConfig) -> [f32; 4] {
+        let density = if cfg.blossom.enabled {
+            cfg.blossom.density.clamp(0.0, 2.0)
+        } else {
+            0.0
+        };
         [
             self.stump_grow_t.clamp(0.0, 1.05),
             cfg.trunk_thickness.clamp(0.7, 1.6),
-            cfg.trunk_lean.clamp(0.15, 0.55),
-            cfg.soul_leaves.clamp(0.0, 1.5),
+            cfg.blossom.sumi_ink.clamp(0.0, 2.5),
+            density,
         ]
     }
 
-    /// `[win_flash, win_ripple, pull_activity, seed_phase]`
+    /// `[win_flash, win_ripple, pull_activity, search_pill_t]`
     pub fn start_fx_vec(&self) -> [f32; 4] {
-        let seed_phase = ((self.last_seed % 1000) as f32) * 0.006283185;
         [
             self.win_flash.clamp(0.0, 1.0),
             self.win_ripple.clamp(0.0, 1.0),
             self.pull_activity.clamp(0.35, 1.8),
-            seed_phase,
+            self.search_pill_t.clamp(0.0, 1.05),
         ]
+    }
+
+    pub fn handle_search_char(&mut self, ch: char) {
+        if !ch.is_control() {
+            self.search_query.push(ch);
+            self.search_cursor = self.search_query.len();
+            self.cursor_blink = 0.0;
+        }
+    }
+
+    pub fn handle_search_backspace(&mut self) {
+        if !self.search_query.is_empty() {
+            self.search_query.pop();
+            self.search_cursor = self.search_query.len();
+            self.cursor_blink = 0.0;
+        }
+    }
+
+    pub fn clear_search(&mut self) {
+        self.search_query.clear();
+        self.search_cursor = 0;
+        self.cursor_blink = 0.0;
+    }
+
+    pub fn build_search_text_entries(
+        &self,
+        pill_cx: f32,
+        pill_cy: f32,
+        _time: f32,
+    ) -> Vec<TextEntry> {
+        let mut out = Vec::with_capacity(4);
+        if self.search_pill_t <= 0.05 {
+            return out;
+        }
+
+        let t_fade = ((self.search_pill_t - 0.05) / 0.95).clamp(0.0, 1.0);
+        let alpha = (t_fade * 255.0).clamp(0.0, 255.0) as u8;
+
+        let cream_white = [242, 238, 228, alpha];
+        let quiet_pearl = [174, 182, 198, (alpha as f32 * 0.86) as u8];
+
+        // Ikon kaca pembesar Ensō di shader berada di pill_cx - pill_hw + 32.0 (yaitu pill_cx - 218.0)
+        // Teks mulai di pill_cx - 186.0 sehingga ada ruang ~32px yang sangat lega dan elegan.
+        let text_x = pill_cx - 186.0;
+        let text_w = 395.0;
+        let font_size = 16.0;
+        let text_y = pill_cy - 10.5;
+
+        if self.search_query.is_empty() {
+            out.push(TextEntry::left(
+                "Cari aplikasi atau berkas...",
+                text_x,
+                text_y,
+                text_w,
+                font_size,
+                quiet_pearl,
+            ));
+        } else {
+            let caret = if (self.cursor_blink * 3.2).sin() > -0.2 { "|" } else { "" };
+            let display_text = format!("{}{}", self.search_query, caret);
+            out.push(TextEntry::left(
+                display_text,
+                text_x,
+                text_y,
+                text_w,
+                font_size,
+                cream_white,
+            ).semibold());
+        }
+
+        out
     }
 }

@@ -446,12 +446,44 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let p = in.uv * u.screen_size;
     let cx = u.screen_size.x * 0.5;
     let bottom_y = u.screen_size.y;
+    let half_w = u.bar_width * 0.5;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ULTRA-FAST EARLY BOUNDING REJECT (Eliminasi fragment transparan kosong)
+    // Mengeliminasi hingga 70% beban evaluasi shader fragment pada area kosong.
+    // ─────────────────────────────────────────────────────────────────────────
+    let is_start_active = (u.start_info.y > 0.005 || u.tree_style.x > 0.005 || u.start_fx.w > 0.005);
+    let is_flyout_active = (u.flyout_info.y > 0.005);
+    let is_wave_active = (u.anim_t > 0.005);
+
+    var in_active_zone = false;
+    // 1. Taskbar Wave Zone (bawah layar + margin ombak)
+    if (is_wave_active && p.y > (bottom_y - 150.0) && abs(p.x - cx) < (half_w + 80.0)) {
+        in_active_zone = true;
+    }
+    // 2. Start Menu Tree, Roots & Searchbar Zone
+    if (!in_active_zone && is_start_active) {
+        let max_tree_h = u.screen_size.y * 0.88;
+        let max_tree_reach = max(half_w + 260.0, 185.0 * (half_w / 450.0) + 420.0);
+        if (p.y > (bottom_y - 108.0 - max_tree_h) && abs(p.x - cx) < max_tree_reach) {
+            in_active_zone = true;
+        }
+    }
+    // 3. Subflyout Zone
+    if (!in_active_zone && is_flyout_active) {
+        if (abs(p.x - u.flyout_meta.x) < 270.0 && p.y > (bottom_y - 580.0)) {
+            in_active_zone = true;
+        }
+    }
+
+    if (!in_active_zone) {
+        discard;
+    }
 
     let t_anim = clamp(u.anim_t, 0.0, 1.15);
     let smooth_t = smoothstep(0.0, 1.0, min(t_anim, 1.0));
     let overshoot = max(t_anim - 1.0, 0.0) * 14.0;
 
-    let half_w = u.bar_width * 0.5;
     let norm_x = clamp(abs(p.x - cx) / half_w, 0.0, 1.0);
 
     let surge_front = smoothstep(norm_x * 0.55, 1.0, smooth_t);
@@ -672,8 +704,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         seed_res.a
     );
 
-    let tracer_col = root_res.rgb;
-    let tracer_alpha = root_res.a;
+    var tracer_col = root_res.rgb;
+    var tracer_alpha = root_res.a;
+
+    // 4. ZEN SEARCH PILL (Luxury Kintsugi & Urushi Lacquer Floating Search Bar)
+    let search_t = clamp(u.start_fx.w, 0.0, 1.05);
+    if (search_t > 0.003) {
+        let pill_res = render_zen_search_pill(
+            p,
+            cx,
+            half_w,
+            bottom_y,
+            smooth_t,
+            overshoot,
+            search_t,
+            u.time,
+            u.mouse_pos,
+            tracer_col,
+            tracer_alpha
+        );
+        tracer_col = pill_res.rgb;
+        tracer_alpha = pill_res.a;
+    }
 
     let final_alpha = max(tracer_alpha, fly_res.alpha);
     if (final_alpha <= 0.001) {

@@ -1,22 +1,23 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
-use std::time::Instant;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
-use windows::Win32::Graphics::Gdi::{
-    CombineRgn, CreateRectRgn, DeleteObject, SetWindowRgn, HRGN, RGN_OR,
+use windows::Win32::Graphics::Dwm::{
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_NCRENDERING_POLICY,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMNCRP_DISABLED,
 };
+use windows::Win32::Graphics::Gdi::SetWindowRgn;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::{
     CallWindowProcW, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE,
-    GWL_STYLE, WM_ACTIVATE, WM_ACTIVATEAPP, WM_KILLFOCUS, WM_NCHITTEST, WS_BORDER, WS_CAPTION,
-    WS_DLGFRAME, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP,
-    WS_SYSMENU, WS_THICKFRAME, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, WNDPROC,
+    GWL_STYLE, WM_ACTIVATE, WM_ACTIVATEAPP, WM_KILLFOCUS, WM_NCHITTEST, WM_NCCALCSIZE, WM_NCPAINT,
+    WM_NCACTIVATE, WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
+    WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WNDPROC,
 };
 
 static PREV_WNDPROC: AtomicUsize = AtomicUsize::new(0);
 static TARGET_HWND: AtomicUsize = AtomicUsize::new(0);
+static IS_CLICKTHROUGH: AtomicBool = AtomicBool::new(false);
 
 // Dynamic hit-test zones for passing clicks through outside the glob
 // Zone 1: Main Taskbar Bar
@@ -63,7 +64,7 @@ pub fn cpu_hit_test(
         return true;
     }
 
-    // 2. Main Flyout & Stalk/Leher
+    // 2. Main Flyout / Search Pill & Stalk/Leher
     if let Some((fly_top, fly_bottom, fly_l, fly_r, fly_cx, fly_cy)) = flyout {
         if y >= (fly_top - 8) && y <= (fly_bottom + 8) && x >= (fly_l - 8) && x <= (fly_r + 8) {
             return true;
@@ -116,6 +117,17 @@ unsafe extern "system" fn sub_wndproc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    // 1. Mencegah DWM menggambar non-client area (titlebar, tombol caption close, minimize, maximize)
+    if msg == WM_NCCALCSIZE {
+        return LRESULT(0);
+    }
+    if msg == WM_NCPAINT {
+        return LRESULT(0);
+    }
+    if msg == WM_NCACTIVATE {
+        return LRESULT(1);
+    }
+
     if msg == WM_KILLFOCUS || msg == WM_ACTIVATEAPP || msg == WM_ACTIVATE {
         let is_deactivating = if msg == WM_ACTIVATE {
             (wparam.0 & 0xFFFF) == 0
@@ -195,21 +207,14 @@ unsafe extern "system" fn sub_wndproc(
     }
 }
 
-struct RegionThrottleState {
-    last_update: Instant,
-    last_signature: (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32),
-}
-
-static THROTTLE_STATE: std::sync::Mutex<Option<RegionThrottleState>> = std::sync::Mutex::new(None);
-
 #[allow(clippy::too_many_arguments)]
 pub fn update_hittest_zones(
     bar_top: i32,
     bar_left: i32,
     bar_right: i32,
-    window_top_screen: i32,
-    window_width: i32,
-    window_height: i32,
+    _window_top_screen: i32,
+    _window_width: i32,
+    _window_height: i32,
     flyout: Option<(i32, i32, i32, i32, i32, i32)>,
     sub1: Option<(i32, i32, i32, i32)>,
     sub2: Option<(i32, i32, i32, i32)>,
@@ -218,24 +223,21 @@ pub fn update_hittest_zones(
     BAR_LEFT_X.store(bar_left, Ordering::Relaxed);
     BAR_RIGHT_X.store(bar_right, Ordering::Relaxed);
 
-    let (f_top, f_bot, f_l, f_r, f_cx, f_cy) =
-        if let Some((top, bottom, left, right, cx, cy)) = flyout {
-            FLY_TOP_Y.store(top, Ordering::Relaxed);
-            FLY_BOTTOM_Y.store(bottom, Ordering::Relaxed);
-            FLY_LEFT_X.store(left, Ordering::Relaxed);
-            FLY_RIGHT_X.store(right, Ordering::Relaxed);
-            FLY_CX.store(cx, Ordering::Relaxed);
-            FLY_CY.store(cy, Ordering::Relaxed);
-            (top, bottom, left, right, cx, cy)
-        } else {
-            FLY_TOP_Y.store(i32::MAX, Ordering::Relaxed);
-            FLY_BOTTOM_Y.store(i32::MAX, Ordering::Relaxed);
-            FLY_LEFT_X.store(0, Ordering::Relaxed);
-            FLY_RIGHT_X.store(0, Ordering::Relaxed);
-            FLY_CX.store(0, Ordering::Relaxed);
-            FLY_CY.store(0, Ordering::Relaxed);
-            (0, 0, 0, 0, 0, 0)
-        };
+    if let Some((top, bottom, left, right, cx, cy)) = flyout {
+        FLY_TOP_Y.store(top, Ordering::Relaxed);
+        FLY_BOTTOM_Y.store(bottom, Ordering::Relaxed);
+        FLY_LEFT_X.store(left, Ordering::Relaxed);
+        FLY_RIGHT_X.store(right, Ordering::Relaxed);
+        FLY_CX.store(cx, Ordering::Relaxed);
+        FLY_CY.store(cy, Ordering::Relaxed);
+    } else {
+        FLY_TOP_Y.store(i32::MAX, Ordering::Relaxed);
+        FLY_BOTTOM_Y.store(i32::MAX, Ordering::Relaxed);
+        FLY_LEFT_X.store(0, Ordering::Relaxed);
+        FLY_RIGHT_X.store(0, Ordering::Relaxed);
+        FLY_CX.store(0, Ordering::Relaxed);
+        FLY_CY.store(0, Ordering::Relaxed);
+    }
 
     if let Some((top, bottom, left, right)) = sub1 {
         SUB1_TOP_Y.store(top, Ordering::Relaxed);
@@ -261,113 +263,29 @@ pub fn update_hittest_zones(
         SUB2_RIGHT_X.store(0, Ordering::Relaxed);
     }
 
+    // Dynamic WS_EX_TRANSPARENT toggle berdasarkan hit-testing kursor
+    // Tanpa SetWindowRgn! Pohon mekar bebas tanpa terpotong dan area luar tembus klik 100%!
     let hwnd_raw = TARGET_HWND.load(Ordering::Relaxed);
-    if hwnd_raw == 0 {
-        return;
-    }
-    let hwnd = HWND(hwnd_raw as _);
+    if hwnd_raw != 0 {
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+            use windows::Win32::Foundation::POINT;
+            let mut pt = POINT { x: 0, y: 0 };
+            if GetCursorPos(&mut pt).is_ok() {
+                let hit = cpu_hit_test(pt.x, pt.y, bar_top, bar_left, bar_right, flyout, sub1, sub2);
+                let current_clickthrough = IS_CLICKTHROUGH.load(Ordering::Relaxed);
+                let hwnd = HWND(hwnd_raw as _);
 
-    let s1_sig = sub1.unwrap_or((0, 0, 0, 0));
-    let s2_sig = sub2.unwrap_or((0, 0, 0, 0));
-    let cur_sig = (
-        bar_top,
-        bar_left,
-        bar_right,
-        f_top,
-        f_bot,
-        f_l,
-        s1_sig.0,
-        s1_sig.2,
-        s1_sig.3,
-        s2_sig.0,
-        s2_sig.2,
-        s2_sig.3,
-    );
-
-    if let Ok(mut throttle_guard) = THROTTLE_STATE.lock() {
-        let throttle = throttle_guard.get_or_insert_with(|| RegionThrottleState {
-            last_update: Instant::now(),
-            last_signature: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-        });
-
-        let now = Instant::now();
-        let changed = throttle.last_signature != cur_sig;
-        let elapsed_ms = now.duration_since(throttle.last_update).as_millis();
-
-        if changed && elapsed_ms >= 16 {
-            throttle.last_signature = cur_sig;
-            throttle.last_update = now;
-
-            unsafe {
-                let mut full_rgn: Option<HRGN> = None;
-
-                let mut add_rect = |l: i32, t: i32, r: i32, b: i32| {
-                    let rgn = CreateRectRgn(l, t, r, b);
-                    if let Some(target) = full_rgn {
-                        CombineRgn(Some(target), Some(target), Some(rgn), RGN_OR);
-                        let _ = DeleteObject(rgn.into());
-                    } else {
-                        full_rgn = Some(rgn);
-                    }
-                };
-
-                // 1. Taskbar Bar Region
-                let local_bar_top = (bar_top - window_top_screen - 12).clamp(0, window_height);
-                add_rect(bar_left - 16, local_bar_top, bar_right + 16, window_height);
-
-                // 2. Main Flyout + Stalk + Chain Sub-Flyouts
-                if flyout.is_some() {
-                    let local_fly_top = (f_top - window_top_screen - 16).clamp(0, window_height);
-                    let local_fly_bottom = (f_bot - window_top_screen + 16).clamp(0, window_height);
-                    add_rect(f_l - 16, local_fly_top, f_r + 16, local_fly_bottom);
-
-                    if local_bar_top > local_fly_bottom {
-                        add_rect(f_cx - 65, local_fly_bottom - 8, f_cx + 65, local_bar_top + 8);
-                    }
-
-                    let local_cy = f_cy - window_top_screen;
-
-                    if let Some((s1_top, s1_bot, s1_l, s1_r)) = sub1 {
-                        let lt = (s1_top - window_top_screen - 16).clamp(0, window_height);
-                        let lb = (s1_bot - window_top_screen + 16).clamp(0, window_height);
-                        add_rect(s1_l - 16, lt, s1_r + 16, lb);
-
-                        let bmin = (s1_l.min(f_l) - 16).clamp(0, window_width);
-                        let bmax = (s1_r.max(f_r) + 16).clamp(0, window_width);
-                        add_rect(
-                            bmin,
-                            (local_cy - 48).clamp(0, window_height),
-                            bmax,
-                            (local_cy + 48).clamp(0, window_height),
-                        );
-                    }
-
-                    if let Some((s2_top, s2_bot, s2_l, s2_r)) = sub2 {
-                        let lt = (s2_top - window_top_screen - 16).clamp(0, window_height);
-                        let lb = (s2_bot - window_top_screen + 16).clamp(0, window_height);
-                        add_rect(s2_l - 16, lt, s2_r + 16, lb);
-
-                        let (ref_l, ref_r) = if let Some((_, _, s1_l, s1_r)) = sub1 {
-                            (s1_l.min(f_l), s1_r.max(f_r))
-                        } else {
-                            (f_l, f_r)
-                        };
-                        let bmin = (s2_l.min(ref_l) - 16).clamp(0, window_width);
-                        let bmax = (s2_r.max(ref_r) + 16).clamp(0, window_width);
-                        add_rect(
-                            bmin,
-                            (local_cy - 48).clamp(0, window_height),
-                            bmax,
-                            (local_cy + 48).clamp(0, window_height),
-                        );
-                    }
-                }
-
-                if let Some(rgn) = full_rgn {
-                    let res = SetWindowRgn(hwnd, Some(rgn), true);
-                    if res == 0 {
-                        let _ = DeleteObject(rgn.into());
-                    }
+                if !hit && !current_clickthrough {
+                    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                    let new_ex = ex_style | (WS_EX_TRANSPARENT.0 as isize);
+                    let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex);
+                    IS_CLICKTHROUGH.store(true, Ordering::Relaxed);
+                } else if hit && current_clickthrough {
+                    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                    let new_ex = ex_style & !(WS_EX_TRANSPARENT.0 as isize);
+                    let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex);
+                    IS_CLICKTHROUGH.store(false, Ordering::Relaxed);
                 }
             }
         }
@@ -403,6 +321,23 @@ pub fn setup_transparent_window(window: &winit::window::Window) {
                     ex_style | (WS_EX_LAYERED.0 as isize) | (WS_EX_TOOLWINDOW.0 as isize);
                 let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex_style);
 
+                // Disable DWM non-client rendering policy and rounded corner decorations
+                let ncrp = DWMNCRP_DISABLED.0 as i32;
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    DWMWA_NCRENDERING_POLICY,
+                    &ncrp as *const _ as _,
+                    std::mem::size_of::<i32>() as u32,
+                );
+
+                let corner = 1i32; // DWMWCP_DONOTROUND
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    DWMWA_WINDOW_CORNER_PREFERENCE,
+                    &corner as *const _ as _,
+                    std::mem::size_of::<i32>() as u32,
+                );
+
                 let _ = SetWindowPos(
                     hwnd,
                     None,
@@ -420,6 +355,9 @@ pub fn setup_transparent_window(window: &winit::window::Window) {
                     cyBottomHeight: -1,
                 };
                 let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+                // Pastikan tidak ada region GDI yang memotong kanopi pohon!
+                let _ = SetWindowRgn(hwnd, None, true);
 
                 let prev = SetWindowLongPtrW(
                     hwnd,
