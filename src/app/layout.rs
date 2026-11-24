@@ -103,10 +103,11 @@ pub fn compute_hit_zones(
         ))
     } else if mgr.start.is_active() && mgr.start.phase2_t > 0.005 {
         // Hit-test region untuk Sakura Start Menu:
-        // Mencakup sepanjang bentangan ombak taskbar dengan margin 35px di atas bibir untuk pangkal & serabut akar
+        // Mencakup sepanjang bentangan ombak taskbar dengan ruang 50% tinggi layar di atas bibir untuk batang utama
         let bar_w = (screen_w as f32) * 0.50;
         let bar_l = ((screen_w as f32) - bar_w) * 0.5;
-        let bar_top_screen = (screen_h as f32) - 135.0;
+        let stump_h = (screen_h as f32) * 0.50;
+        let bar_top_screen = (screen_h as f32) - 108.0 - stump_h - 40.0;
         let bot_screen = (screen_h as f32) + 16.0;
         let mid_y = (bar_top_screen + bot_screen) * 0.5;
         let cx = (screen_w as f32) * 0.5;

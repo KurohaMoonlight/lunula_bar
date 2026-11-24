@@ -15,6 +15,9 @@ pub struct StartMenuState {
     /// Fase 3: Pertumbuhan akar Sakura (pangkal gendut + bentangan 80% taskbar + akar menyelam)
     pub root_grow_t: f32,
     pub root_grow_vel: f32,
+    /// Fase 4: Pertumbuhan tunggul batang utama (stump) Sakura setinggi 10% layar & lebar 6% ke kiri/kanan
+    pub stump_grow_t: f32,
+    pub stump_grow_vel: f32,
     /// Reaksi interaktif lilitan tombol Windows saat ditekan (mengencang sesaat lalu rileks via pegas YAML)
     pub win_cinch: f32,
     pub win_cinch_vel: f32,
@@ -43,6 +46,8 @@ impl StartMenuState {
             phase2_vel: 0.0,
             root_grow_t: 0.0,
             root_grow_vel: 0.0,
+            stump_grow_t: 0.0,
+            stump_grow_vel: 0.0,
             win_cinch: 0.0,
             win_cinch_vel: 0.0,
             win_flash: 0.0,
@@ -99,7 +104,7 @@ impl StartMenuState {
     }
 
     pub fn is_active(&self) -> bool {
-        self.open || self.phase1_t > 0.005 || self.phase2_t > 0.005 || self.root_grow_t > 0.005
+        self.open || self.phase1_t > 0.005 || self.phase2_t > 0.005 || self.root_grow_t > 0.005 || self.stump_grow_t > 0.005
     }
 
     pub fn update(&mut self, dt: f32, cfg: &StartTreeConfig) {
@@ -169,17 +174,37 @@ impl StartMenuState {
             self.root_grow_vel = self.root_grow_vel.min(0.0);
         }
 
+        // Fase 4 (Sakura Stump Growth: Tumbuh tunggul batang kokoh setinggi 10% layar di tengah)
+        // Mulai tumbuh begitu akar sudah mulai mencengkeram (root_grow_t > 0.40)
+        let p4_target = if self.open && self.root_grow_t > 0.40 {
+            1.0
+        } else {
+            0.0
+        };
+        let (k4, d4) = if p4_target > 0.5 { (42.0, 11.5) } else { (68.0, 15.0) };
+        self.stump_grow_vel += ((p4_target - self.stump_grow_t) * k4 - self.stump_grow_vel * d4) * dt;
+        self.stump_grow_t += self.stump_grow_vel * dt;
+        if self.stump_grow_t < 0.0 {
+            self.stump_grow_t = 0.0;
+            self.stump_grow_vel = self.stump_grow_vel.max(0.0);
+        } else if self.stump_grow_t > 1.05 {
+            self.stump_grow_t = 1.05;
+            self.stump_grow_vel = self.stump_grow_vel.min(0.0);
+        }
+
         // Tarikan partikel dinamis: kuat saat baru buka (~1.55), tenang saat idle (~0.58)
         let target_pull = if self.open { 1.55 } else { 0.58 };
         self.pull_activity += (target_pull - self.pull_activity) * (dt * 2.4).min(1.0);
 
-        if !self.open && self.phase1_t < 0.004 && self.phase1_vel.abs() < 0.05 && self.phase2_t < 0.004 && self.root_grow_t < 0.004 {
+        if !self.open && self.phase1_t < 0.004 && self.phase1_vel.abs() < 0.05 && self.phase2_t < 0.004 && self.root_grow_t < 0.004 && self.stump_grow_t < 0.004 {
             self.phase1_t = 0.0;
             self.phase1_vel = 0.0;
             self.phase2_t = 0.0;
             self.phase2_vel = 0.0;
             self.root_grow_t = 0.0;
             self.root_grow_vel = 0.0;
+            self.stump_grow_t = 0.0;
+            self.stump_grow_vel = 0.0;
         }
     }
 
@@ -208,10 +233,10 @@ impl StartMenuState {
         ]
     }
 
-    /// `[trunk_style (0=hybrid, 1=liquid, 2=wood), trunk_thickness, trunk_lean, soul_leaves]`
+    /// `[stump_grow_t, trunk_thickness, trunk_lean, soul_leaves]`
     pub fn tree_style_vec(&self, cfg: &StartTreeConfig) -> [f32; 4] {
         [
-            cfg.trunk_style as u32 as f32,
+            self.stump_grow_t.clamp(0.0, 1.05),
             cfg.trunk_thickness.clamp(0.7, 1.6),
             cfg.trunk_lean.clamp(0.15, 0.55),
             cfg.soul_leaves.clamp(0.0, 1.5),

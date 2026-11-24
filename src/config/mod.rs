@@ -138,6 +138,7 @@ pub struct StartTreeConfig {
     #[serde(default = "default_start_spring")]
     pub spring: SpringConfig,
     #[serde(default)]
+    #[allow(dead_code)]
     pub trunk_style: TrunkStyle,
     #[serde(default = "default_trunk_thickness")]
     pub trunk_thickness: f32,

@@ -604,10 +604,41 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         fly_bar_top
     );
 
-    var tracer_col = color;
-    var tracer_alpha = glob_alpha;
+    // ─────────────────────────────────────────────────────────────────────────
+    // LAYER COMPOSITING 3D:
+    // Layer 1 (Paling Belakang): Stump Batang Utama Sakura
+    // Layer 2 (Tengah): Ombak Taskbar Kanagawa & Widget Icons
+    // Layer 3 (Paling Depan): Seed Tracer & Akar Nebari Berserabut
+    // ─────────────────────────────────────────────────────────────────────────
 
-    // Render Sakura Seed Outline Tracer (Meluncur Menyusuri Bibir Ombak ke Tengah Layar)
+    // 1. STUMP SAKURA (Z-index di BELAKANG Taskbar)
+    let g_stump = clamp(u.tree_style.x, 0.0, 1.05);
+    var bg_col = hex(16.0, 16.0, 24.0);
+    var bg_alpha = 0.0;
+    let stump_res = render_sakura_stump(
+        p,
+        cx,
+        half_w,
+        u.bar_width,
+        bottom_y,
+        u.screen_size.y,
+        smooth_t,
+        overshoot,
+        g_stump,
+        u.time,
+        bg_col,
+        bg_alpha
+    );
+
+    // 2. TASKBAR OMBAK (Di DEPAN Stump, sehingga bibir ombak menutupi bagian bawah stump)
+    var mid_col = stump_res.rgb;
+    var mid_alpha = stump_res.a;
+    if (glob_alpha > 0.001) {
+        mid_col = mix(mid_col, color, glob_alpha);
+        mid_alpha = max(mid_alpha, glob_alpha);
+    }
+
+    // 3. SEED TRACER & AKAR NEBARI (Di PALING DEPAN, memeluk bibir ombak dan pangkal batang dari depan)
     let bar_left = cx - half_w;
     let p2_c = clamp(u.start_info.y, 0.0, 1.05);
     let win_center_tracer = vec2<f32>(bar_left + 54.0, bottom_y - base_height * 0.54);
@@ -622,13 +653,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         win_center_tracer,
         p2_c,
         u.time,
-        tracer_col,
-        tracer_alpha
+        mid_col,
+        mid_alpha
     );
-    tracer_col = seed_res.rgb;
-    tracer_alpha = seed_res.a;
 
-    // Render Sakura Nebari Roots (Pangkal Gendut di Tengah + Bentangan 80% Kiri/Kanan + Akar Menyelam)
     let g_root = clamp(u.start_info.z, 0.0, 1.05);
     let root_res = render_sakura_roots(
         p,
@@ -640,11 +668,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         overshoot,
         g_root,
         u.time,
-        tracer_col,
-        tracer_alpha
+        seed_res.rgb,
+        seed_res.a
     );
-    tracer_col = root_res.rgb;
-    tracer_alpha = root_res.a;
+
+    let tracer_col = root_res.rgb;
+    let tracer_alpha = root_res.a;
 
     let final_alpha = max(tracer_alpha, fly_res.alpha);
     if (final_alpha <= 0.001) {

@@ -643,37 +643,16 @@ fn render_sakura_roots(
     let sakura_blush= hex(248.0, 168.0, 185.0); // Rona sakura anggun
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 1. PANGKAL AKAR ORGANIK DI TENGAH (The Muscular Nebari Hub + Arching Buttresses)
+    // 1. PANGKAL NEBARI ORGANIK (Transisi Alami Menyatu dengan Tunggul Batang)
+    // Bebas cakar kaku! Urat akar melebar anggun (nebari flare) memeluk pangkal
+    // batang di kiri & kanan dan menyatu langsung ke alur fluting batang.
     // ─────────────────────────────────────────────────────────────────────────
-    let q_hub = p - hub_center;
-    let dist_hub = length(q_hub);
-    let ang_hub = atan2(q_hub.y, q_hub.x);
+    let r_base_stump = half_w * 2.0 * 0.046; // = bar_width * 0.046
 
-    // Otot urat organik pada pangkal nebari (melebar ke bawah & samping, menonjol di bibir)
-    let muscle = (sin(ang_hub * 3.0 + 1.2) * 0.55 + cos(ang_hub * 5.0 - 0.8) * 0.35) * 3.8;
-    let y_flare = select(q_hub.y * 0.35, -q_hub.y * 0.65, q_hub.y < 0.0);
-    let r_hub_eff = max((15.5 + muscle + y_flare) * g_hub, 0.5);
-    var d_hub_all = dist_hub - r_hub_eff;
-
-    // Sulur Nebari Atas-Kiri: melengkung naik ke atas bibir ombak lalu memeluk ke samping
-    let hub_ul_p0 = hub_center + vec2<f32>(-4.0, -8.0 * g_hub);
-    let hub_ul_p1 = hub_center + vec2<f32>(-24.0, -17.0 * g_hub);
-    let hub_ul_p2 = hub_center + vec2<f32>(-48.0, -4.0 * g_hub);
-    let d_hub_ul = min(
-        sd_tapered_capsule(p, hub_ul_p0, hub_ul_p1, 5.8 * g_hub, 4.0 * g_hub).x,
-        sd_tapered_capsule(p, hub_ul_p1, hub_ul_p2, 4.0 * g_hub, 2.2 * g_hub).x
-    );
-
-    // Sulur Nebari Atas-Kanan: melengkung naik ke atas bibir ombak lalu memeluk ke kanan
-    let hub_ur_p0 = hub_center + vec2<f32>(4.0, -8.0 * g_hub);
-    let hub_ur_p1 = hub_center + vec2<f32>(26.0, -18.0 * g_hub);
-    let hub_ur_p2 = hub_center + vec2<f32>(52.0, -5.0 * g_hub);
-    let d_hub_ur = min(
-        sd_tapered_capsule(p, hub_ur_p0, hub_ur_p1, 5.8 * g_hub, 4.0 * g_hub).x,
-        sd_tapered_capsule(p, hub_ur_p1, hub_ur_p2, 4.0 * g_hub, 2.2 * g_hub).x
-    );
-
-    d_hub_all = smin_cubic(d_hub_all, min(d_hub_ul, d_hub_ur), 4.5 * g_hub);
+    // Flare pangkal: lengkungan naik lembut memeluk pangkal batang di kiri & kanan
+    let dx_c = abs(p.x - cx);
+    let flare_t = clamp(1.0 - abs(dx_c - r_base_stump * 0.90) / max(r_base_stump * 0.85, 1.0), 0.0, 1.0);
+    let nebari_lift = pow(clamp(1.0 - dx_c / max(r_base_stump * 1.15, 1.0), 0.0, 1.0), 1.5) * 6.5 * g_hub;
 
     // ─────────────────────────────────────────────────────────────────────────
     // 2. SAYAP AKAR UTAMA BERSERABUT DENGAN UJUNG BULAT & GRADASI HALUS (Zero Box Clip)
@@ -683,7 +662,7 @@ fn render_sakura_roots(
     var wing_r = 1.0;
 
     // Evaluasi sayap diperluas hingga cur_span + 32px untuk perhitungan tutup bulat Euclidean sempurna
-    if (dx <= cur_span + 32.0 && dx >= 1.5) {
+    if (dx <= cur_span + 32.0) {
         let span_norm = clamp(dx / max_span, 0.0, 1.0);
         let sample_x = select(cx + sign(p.x - cx) * min(dx, cur_span), p.x, dx <= cur_span);
         let lip_y_x = get_taskbar_lip_y(sample_x, cx, half_w, bottom_y, smooth_t, overshoot);
@@ -692,13 +671,13 @@ fn render_sakura_roots(
         let wave_ripple = (sin((sample_x - bar_left) * 0.034 + time * 2.8) * 0.65 + sin((sample_x - bar_left) * 0.072 - time * 1.5) * 0.35) * 2.4;
         let lip_runner_y = lip_y_x + wave_ripple;
 
-        // Trunk A: Urat akar utama meliuk halus (S-curve wabi-sabi)
+        // Trunk A: Urat akar utama meliuk halus (S-curve wabi-sabi) + lengkungan naik menyatu ke batang di pangkal
         let meander_a = sin(min(dx, cur_span) * 0.045 - time * 0.8) * 2.8 * smoothstep(0.08, 0.70, span_norm);
-        let root_y_a = lip_runner_y + meander_a;
+        let root_y_a = lip_runner_y + meander_a - nebari_lift;
 
-        // Profil ketebalan: Dari pangkal gendut (~10.5px) menipis bertahap hingga sangat halus (~0.8px) di ujung
+        // Profil ketebalan: Dari pangkal gendut (~11.5px + flare) menipis bertahap hingga sangat halus (~0.8px) di ujung
         let taper = pow(clamp(1.0 - span_norm, 0.0, 1.0), 0.82);
-        wing_r = mix(0.8, 10.5, taper) * min(g_span * 1.15, 1.0);
+        wing_r = mix(0.8, 11.5 + flare_t * 3.5, taper) * min(g_span * 1.15, 1.0);
 
         // Euclidean end-cap: Di luar cur_span, jarak dihitung melengkung setengah lingkaran (tutup bulat)
         let cap_dx = max(dx - cur_span, 0.0);
@@ -870,10 +849,9 @@ fn render_sakura_roots(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // FUSI SDF SEMUA AKAR (Pangkal + Sayap + Cabang Prosedural)
+    // FUSI SDF SEMUA AKAR (Sayap Lateral + Cabang Prosedural)
     // ─────────────────────────────────────────────────────────────────────────
-    let d_surface_roots = smin_cubic(d_hub_all, d_wings, 5.5 * g_hub);
-    let d_all_roots = smin_cubic(d_surface_roots, d_branches, 2.8 * g_branch);
+    let d_all_roots = smin_cubic(d_wings, d_branches, 2.8 * g_branch);
 
     if (d_all_roots > 22.0) {
         return vec4<f32>(col, alpha);
@@ -902,9 +880,26 @@ fn render_sakura_roots(
     // Aliran urat emas cair Kintsugi sepanjang akar
     let flow = sin(p.x * 0.09 - time * 2.4) * 0.5 + 0.5;
 
-    var r_col = mix(bronze_bark, gold_body, smoothstep(0.0, 0.45, norm_depth));
+    // ─────────────────────────────────────────────────────────────────────────
+    // FUSI TANPA OUTLINE DI AREA PERSINGGUNGAN BATANG (Seamless Trunk Intersection)
+    // Di area di mana akar bersinggungan dengan batang, hilangkan outline coklat (bronze_bark)
+    // dan leburkan tepian akar menjadi emas murni (gold_body) agar menyatu total dengan batang.
+    // ─────────────────────────────────────────────────────────────────────────
+    let r_trunk_base = 48.0 * clamp(u.tree_style.y, 0.75, 1.65);
+    let dx_trunk = abs(p.x - cx);
+    let inter_x = 1.0 - smoothstep(r_trunk_base * 0.70, r_trunk_base + 18.0, dx_trunk);
+    let inter_y = smoothstep(lip_center_y + 14.0, lip_center_y - 25.0, p.y);
+    let trunk_inter = inter_x * inter_y * clamp(u.tree_style.x, 0.0, 1.0);
+
+    // Hilangkan outline gelap di area persinggungan: ganti bronze_bark dengan gold_body
+    let eff_bark = mix(bronze_bark, gold_body, trunk_inter);
+
+    var r_col = mix(eff_bark, gold_body, smoothstep(0.0, 0.45, norm_depth));
     r_col = mix(r_col, gold_core, core_highlight * (0.60 + 0.40 * flow) * fiber_grain);
     r_col = mix(r_col, sakura_blush, smoothstep(0.35, 0.95, abs(p.x - cx) / max_span) * 0.40);
+
+    // Di area persinggungan, leburkan warna akar ke warna batang di belakangnya untuk fusi sempurna
+    r_col = mix(r_col, col, trunk_inter * 0.45);
 
     // Efek refraksi untuk akar yang menyelam ke dalam ombak taskbar (sedikit biru gelap air)
     let in_water = smoothstep(0.0, 6.0, p.y - lip_center_y);
@@ -917,6 +912,429 @@ fn render_sakura_roots(
     col = mix(col, aura_col, aura_glow * 0.55 * g);
     col = mix(col, r_col, eff_root_mask * 0.96);
     alpha = max(alpha, max(eff_root_mask * 0.98, aura_glow * 0.65) * g);
+
+    return vec4<f32>(col, alpha);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SAKURA TREE TRUNK & FULL WOOD CROWN (Batang Utama & Tajuk Kayu Lengkap Sakura Dewasa)
+// Berada pada z-index di BELAKANG taskbar, menyatu mulus dengan akar Kintsugi
+// Sesuai referensi lukisan Sakura:
+// 1. Batang pokok meliuk anggun ke KIRI hingga ketinggian 35% layar.
+// 2. Di ketinggian 35% layar, membelah menjadi DUA DAHAN INDUK PRIMER:
+//    - Dahan Kiri: Mengayun ke kiri-atas
+//    - Dahan Kanan: Melengkung kubah (arch) & siku (elbow) dengan RONGGA JENDELA NEGATIF (~100px) di tengah.
+// 3. CABANG KAYU TERSIER (Crown Wood Network):
+//    - Lebar bentangan tajuk: Selebar taskbar (cx - half_w s/d cx + half_w, ~960px).
+//    - Puncak tajuk: Menjulang hingga ~64% TINGGI LAYAR.
+//    - Ranting banyak & bertingkat: ranting mendatar jauh, ranting mahkota atas, dan tirai ranting gantung (weeping twigs).
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn render_sakura_stump(
+    p: vec2<f32>,
+    cx: f32,
+    half_w: f32,
+    bar_width: f32,
+    bottom_y: f32,
+    screen_h: f32,
+    smooth_t: f32,
+    overshoot: f32,
+    g_stump: f32,
+    time: f32,
+    in_col: vec3<f32>,
+    in_a: f32,
+) -> vec4<f32> {
+    if (g_stump <= 0.003) {
+        return vec4<f32>(in_col, in_a);
+    }
+
+    let g = clamp(g_stump, 0.0, 1.0);
+    let grow = smoothstep(0.0, 1.0, g);
+
+    // Ketinggian Y bibir atas taskbar di tengah
+    let lip_center_y = get_taskbar_lip_y(cx, cx, half_w, bottom_y, smooth_t, overshoot);
+
+    // Ketinggian pohon:
+    // 1. Percabangan Primer membelah di ketinggian ~35% TINGGI LAYAR
+    let h_fork = screen_h * 0.35 * grow;
+    // 2. Tajuk Puncak Ranting Tersier menjulang hingga ~64% TINGGI LAYAR
+    let h_total = screen_h * 0.64 * grow;
+    let h_crown = (h_total - h_fork);
+
+    // Batas bawah tunggul: masuk ke balik taskbar ombak agar menyatu dari belakang
+    let stump_base_y = lip_center_y + 30.0;
+
+    // Skala ketebalan batang dari u.tree_style.y (default 1.0, responsif)
+    let thick = clamp(u.tree_style.y, 0.75, 1.65);
+
+    // Bounding guard efisien: selebar taskbar (half_w) + margin aman
+    let max_reach_x = half_w + 35.0;
+    if (p.y < (lip_center_y - h_total - 35.0) || p.y > (stump_base_y + 25.0) || abs(p.x - cx) > max_reach_x) {
+        return vec4<f32>(in_col, in_a);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 1. BATANG PRIMER UTAMA (Condong/Meliuk Kuat ke KIRI hingga 35% Layar)
+    // Sesuai lukisan referensi: Pangkal berotot di sedikit kanan (cx + 12),
+    // mengayun condong ke KIRI (cx - 50) saat naik menuju titik fork di 35% layar.
+    // ─────────────────────────────────────────────────────────────────────────
+    let p_base   = vec2<f32>(cx + 12.0, lip_center_y + 20.0);
+    let p_tr1    = vec2<f32>(cx - 8.0, lip_center_y - h_fork * 0.30);  // Mulai condong ke kiri
+    let p_tr2    = vec2<f32>(cx - 32.0, lip_center_y - h_fork * 0.62); // Mengayun kuat ke kiri
+    let p_tr3    = vec2<f32>(cx - 50.0, lip_center_y - h_fork * 0.86); // Leher fork di sisi kiri
+    let p_fork   = vec2<f32>(cx - 48.0, lip_center_y - h_fork);        // Titik bifurkasi utama di 35% layar
+
+    let r_base_bot = 48.0 * thick * grow;
+    let r_tr1      = 40.0 * thick * grow;
+    let r_tr2      = 36.0 * thick * grow;
+    let r_tr3      = 33.0 * thick * grow;
+    let r_fork     = 31.0 * thick * grow;
+
+    let d_tr0 = sd_tapered_capsule(p, p_base, p_tr1, r_base_bot, r_tr1).x;
+    let d_tr1 = sd_tapered_capsule(p, p_tr1, p_tr2, r_tr1, r_tr2).x;
+    let d_tr2 = sd_tapered_capsule(p, p_tr2, p_tr3, r_tr2, r_tr3).x;
+    let d_tr3 = sd_tapered_capsule(p, p_tr3, p_fork, r_tr3, r_fork).x;
+
+    // Flare akar lateral nebari kiri (menapak lebar ke kiri ombak)
+    let p_flare_l1 = vec2<f32>(cx - 75.0, lip_center_y + 16.0);
+    let p_flare_l2 = vec2<f32>(cx - 35.0, lip_center_y + 6.0);
+    let d_flare_l0 = sd_tapered_capsule(p, p_flare_l1, p_flare_l2, 20.0 * thick * grow, 28.0 * thick * grow).x;
+    let d_flare_l1 = sd_tapered_capsule(p, p_flare_l2, p_tr1, 28.0 * thick * grow, r_tr1 * 0.85).x;
+
+    // Flare akar lateral nebari kanan (menapak kuat ke kanan ombak)
+    let p_flare_r1 = vec2<f32>(cx + 85.0, lip_center_y + 16.0);
+    let p_flare_r2 = vec2<f32>(cx + 45.0, lip_center_y + 6.0);
+    let d_flare_r0 = sd_tapered_capsule(p, p_flare_r1, p_flare_r2, 18.0 * thick * grow, 26.0 * thick * grow).x;
+    let d_flare_r1 = sd_tapered_capsule(p, p_flare_r2, p_base, 26.0 * thick * grow, r_base_bot * 0.85).x;
+
+    let d_trunk_core = min(min(d_tr0, d_tr1), min(d_tr2, d_tr3));
+    let d_flares = min(min(d_flare_l0, d_flare_l1), min(d_flare_r0, d_flare_r1));
+    let d_main_trunk = smin_cubic(d_trunk_core, d_flares, 10.0 * thick * grow);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 2. DUA CABANG INDUK PRIMER (Mulai dari Ketinggian 35% Layar)
+    // Sesuai lukisan referensi:
+    // - Dahan Primer Kiri: Melanjutkan ayunan batang, melengkung ke kiri-atas
+    // - Dahan Primer Kanan: Melengkung kubah ke kanan atas, menekuk siku (elbow),
+    //   dan menjulur mendatar ke kanan.
+    // - Terbentuk RONGGA OVAL JENDELA NEGATIF (~100px) yang tembus pandang di tengah!
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // --- DAHAN INDUK KIRI (CABANG PRIMER KIRI) ---
+    let pl0 = p_fork;
+    let pl1 = vec2<f32>(cx - 82.0, lip_center_y - h_fork - h_crown * 0.16);
+    let pl2 = vec2<f32>(cx - 130.0, lip_center_y - h_fork - h_crown * 0.32);
+    let pl_split = vec2<f32>(cx - 170.0, lip_center_y - h_fork - h_crown * 0.42);
+
+    let rl0 = r_fork * 0.88;
+    let rl1 = 26.0 * thick * grow;
+    let rl2 = 22.0 * thick * grow;
+    let rl_split = 18.0 * thick * grow;
+
+    let d_l_seg0 = sd_tapered_capsule(p, pl0, pl1, rl0, rl1).x;
+    let d_l_seg1 = sd_tapered_capsule(p, pl1, pl2, rl1, rl2).x;
+    let d_l_seg2 = sd_tapered_capsule(p, pl2, pl_split, rl2, rl_split).x;
+    let d_l_primary = min(min(d_l_seg0, d_l_seg1), d_l_seg2);
+
+    // --- DAHAN INDUK KANAN (THE ICONIC ARCH, ELBOW & NEGATIVE SPACE WINDOW) ---
+    let pr0 = p_fork;
+    let pr1 = vec2<f32>(cx + 8.0, lip_center_y - h_fork - h_crown * 0.12);  // Menyeberang ke kanan
+    let pr2 = vec2<f32>(cx + 65.0, lip_center_y - h_fork - h_crown * 0.26); // Puncak kubah lengkungan
+    let pr3 = vec2<f32>(cx + 115.0, lip_center_y - h_fork - h_crown * 0.24); // Siku luar (elbow)
+    let pr_elbow = vec2<f32>(cx + 155.0, lip_center_y - h_fork - h_crown * 0.22); // Mulai mendatar horizontal
+
+    let rr0 = r_fork * 0.85;
+    let rr1 = 24.0 * thick * grow;
+    let rr2 = 21.0 * thick * grow;
+    let rr3 = 18.0 * thick * grow;
+    let rr_elbow = 16.0 * thick * grow;
+
+    let d_r_seg0 = sd_tapered_capsule(p, pr0, pr1, rr0, rr1).x;
+    let d_r_seg1 = sd_tapered_capsule(p, pr1, pr2, rr1, rr2).x;
+    let d_r_seg2 = sd_tapered_capsule(p, pr2, pr3, rr2, rr3).x;
+    let d_r_seg3 = sd_tapered_capsule(p, pr3, pr_elbow, rr3, rr_elbow).x;
+    let d_r_primary = min(min(d_r_seg0, d_r_seg1), min(d_r_seg2, d_r_seg3));
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 3. CABANG SEKUNDER (Kerangka Penyangga Tajuk)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // --- SEKUNDER KIRI ---
+    let pl1_a = vec2<f32>(cx - 215.0, lip_center_y - h_fork - h_crown * 0.44);
+    let pl1_b = vec2<f32>(cx - 260.0, lip_center_y - h_fork - h_crown * 0.46);
+    let rl1_a = 13.0 * thick * grow;
+    let rl1_b = 8.5 * thick * grow;
+    let d_l_sec1 = min(
+        sd_tapered_capsule(p, pl_split, pl1_a, rl_split * 0.75, rl1_a).x,
+        sd_tapered_capsule(p, pl1_a, pl1_b, rl1_a, rl1_b).x
+    );
+
+    let pl2_a = vec2<f32>(cx - 160.0, lip_center_y - h_fork - h_crown * 0.55);
+    let pl2_b = vec2<f32>(cx - 145.0, lip_center_y - h_fork - h_crown * 0.68);
+    let rl2_a = 12.0 * thick * grow;
+    let rl2_b = 8.0 * thick * grow;
+    let d_l_sec2 = min(
+        sd_tapered_capsule(p, pl_split, pl2_a, rl_split * 0.70, rl2_a).x,
+        sd_tapered_capsule(p, pl2_a, pl2_b, rl2_a, rl2_b).x
+    );
+
+    let pl_ap1 = vec2<f32>(cx - 42.0, lip_center_y - h_fork - h_crown * 0.42);
+    let pl_ap2 = vec2<f32>(cx - 18.0, lip_center_y - h_fork - h_crown * 0.60);
+    let rl_ap1 = 12.5 * thick * grow;
+    let rl_ap2 = 8.0 * thick * grow;
+    let d_l_sec4 = min(
+        sd_tapered_capsule(p, pl1, pl_ap1, rl1 * 0.65, rl_ap1).x,
+        sd_tapered_capsule(p, pl_ap1, pl_ap2, rl_ap1, rl_ap2).x
+    );
+
+    let d_l_secondary = min(min(d_l_sec1, d_l_sec2), d_l_sec4);
+
+    // --- SEKUNDER KANAN ---
+    let pr1_a = vec2<f32>(cx + 200.0, lip_center_y - h_fork - h_crown * 0.24);
+    let pr1_b = vec2<f32>(cx + 250.0, lip_center_y - h_fork - h_crown * 0.26);
+    let rr1_a = 12.5 * thick * grow;
+    let rr1_b = 8.0 * thick * grow;
+    let d_r_sec1 = min(
+        sd_tapered_capsule(p, pr_elbow, pr1_a, rr_elbow * 0.78, rr1_a).x,
+        sd_tapered_capsule(p, pr1_a, pr1_b, rr1_a, rr1_b).x
+    );
+
+    let pr2_a = vec2<f32>(cx + 125.0, lip_center_y - h_fork - h_crown * 0.44);
+    let pr2_b = vec2<f32>(cx + 145.0, lip_center_y - h_fork - h_crown * 0.60);
+    let rr2_a = 12.0 * thick * grow;
+    let rr2_b = 8.0 * thick * grow;
+    let d_r_sec2 = min(
+        sd_tapered_capsule(p, pr3, pr2_a, rr3 * 0.70, rr2_a).x,
+        sd_tapered_capsule(p, pr2_a, pr2_b, rr2_a, rr2_b).x
+    );
+
+    let d_r_secondary = min(d_r_sec1, d_r_sec2);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 4. CABANG KAYU TERSIER (Crown Wood Network - Lebar Setaskbar & Tinggi ~64% Layar)
+    // Anyaman dahan & ranting kayu halus melimpah ruah (25+ ranting terstruktur):
+    // A. Sayap Kiri Luar: Menjangkau ujung kiri taskbar (cx - half_w * 0.94)
+    // B. Sayap Kanan Luar: Menjangkau ujung kanan taskbar (cx + half_w * 0.93)
+    // C. Tajuk Kiri Atas: Menjulang tinggi mencapai ketinggian ~63% layar
+    // D. Tajuk Mahkota Tengah: Memayungi kubah tengah mencapai puncak ~64% layar
+    // E. Tajuk Kanan Atas: Menjulang ke kanan-atas (~61% layar)
+    // F. Tirai Ranting Menggantung (Weeping Filigree): Ranting berliku di bawah dahan
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // --- A. SAYAP KIRI LUAR (Mencapai Tepi Kiri Taskbar ~ cx - half_w * 0.94) ---
+    let pl_t1 = vec2<f32>(cx - 330.0, lip_center_y - h_fork - h_crown * 0.45);
+    let pl_t2 = vec2<f32>(cx - 405.0, lip_center_y - h_fork - h_crown * 0.42);
+    let pl_t3 = vec2<f32>(cx - half_w * 0.94, lip_center_y - h_fork - h_crown * 0.40);
+    let d_t_left_reach = min(
+        sd_tapered_capsule(p, pl1_b, pl_t1, rl1_b * 0.80, 5.5 * thick * grow).x,
+        min(
+            sd_tapered_capsule(p, pl_t1, pl_t2, 5.5 * thick * grow, 3.8 * thick * grow).x,
+            sd_tapered_capsule(p, pl_t2, pl_t3, 3.8 * thick * grow, 2.2 * thick * grow).x
+        )
+    );
+
+    // Ranting tajuk atas di sayap kiri luar
+    let pl_t_up1 = vec2<f32>(cx - 360.0, lip_center_y - h_fork - h_crown * 0.58);
+    let pl_t_up2 = vec2<f32>(cx - 380.0, lip_center_y - h_fork - h_crown * 0.70);
+    let d_t_left_up = min(
+        sd_tapered_capsule(p, pl_t1, pl_t_up1, 4.5 * thick * grow, 3.0 * thick * grow).x,
+        sd_tapered_capsule(p, pl_t_up1, pl_t_up2, 3.0 * thick * grow, 1.8 * thick * grow).x
+    );
+
+    // Ranting merunduk/gantung di sayap kiri luar
+    let pl_t_wp1 = vec2<f32>(cx - 345.0, lip_center_y - h_fork - h_crown * 0.28);
+    let pl_t_wp2 = vec2<f32>(cx - 365.0, lip_center_y - h_fork - h_crown * 0.15);
+    let d_t_left_wp = min(
+        sd_tapered_capsule(p, pl_t1, pl_t_wp1, 3.8 * thick * grow, 2.4 * thick * grow).x,
+        sd_tapered_capsule(p, pl_t_wp1, pl_t_wp2, 2.4 * thick * grow, 1.6 * thick * grow).x
+    );
+
+    // --- B. SAYAP KANAN LUAR (Mencapai Tepi Kanan Taskbar ~ cx + half_w * 0.93) ---
+    let pr_t1 = vec2<f32>(cx + 325.0, lip_center_y - h_fork - h_crown * 0.25);
+    let pr_t2 = vec2<f32>(cx + 400.0, lip_center_y - h_fork - h_crown * 0.23);
+    let pr_t3 = vec2<f32>(cx + half_w * 0.93, lip_center_y - h_fork - h_crown * 0.20);
+    let d_t_right_reach = min(
+        sd_tapered_capsule(p, pr1_b, pr_t1, rr1_b * 0.80, 5.5 * thick * grow).x,
+        min(
+            sd_tapered_capsule(p, pr_t1, pr_t2, 5.5 * thick * grow, 3.6 * thick * grow).x,
+            sd_tapered_capsule(p, pr_t2, pr_t3, 3.6 * thick * grow, 2.2 * thick * grow).x
+        )
+    );
+
+    // Ranting tajuk atas di sayap kanan luar
+    let pr_t_up1 = vec2<f32>(cx + 355.0, lip_center_y - h_fork - h_crown * 0.42);
+    let pr_t_up2 = vec2<f32>(cx + 375.0, lip_center_y - h_fork - h_crown * 0.55);
+    let d_t_right_up = min(
+        sd_tapered_capsule(p, pr_t1, pr_t_up1, 4.4 * thick * grow, 2.8 * thick * grow).x,
+        sd_tapered_capsule(p, pr_t_up1, pr_t_up2, 2.8 * thick * grow, 1.8 * thick * grow).x
+    );
+
+    // Ranting merunduk/gantung di sayap kanan luar
+    let pr_t_wp1 = vec2<f32>(cx + 340.0, lip_center_y - h_fork - h_crown * 0.12);
+    let pr_t_wp2 = vec2<f32>(cx + 360.0, lip_center_y - h_fork - h_crown * 0.02);
+    let d_t_right_wp = min(
+        sd_tapered_capsule(p, pr_t1, pr_t_wp1, 3.6 * thick * grow, 2.2 * thick * grow).x,
+        sd_tapered_capsule(p, pr_t_wp1, pr_t_wp2, 2.2 * thick * grow, 1.6 * thick * grow).x
+    );
+
+    // --- C. TAJUK KIRI ATAS (Upper Left Crown ~63% Layar) ---
+    let pl_cr1 = vec2<f32>(cx - 180.0, lip_center_y - h_fork - h_crown * 0.82);
+    let pl_cr2 = vec2<f32>(cx - 165.0, lip_center_y - h_fork - h_crown * 0.96);
+    let pl_cr3 = vec2<f32>(cx - 125.0, lip_center_y - h_fork - h_crown * 0.88);
+    let d_t_left_crown = min(
+        sd_tapered_capsule(p, pl2_b, pl_cr1, rl2_b * 0.75, 4.8 * thick * grow).x,
+        min(
+            sd_tapered_capsule(p, pl_cr1, pl_cr2, 4.8 * thick * grow, 2.4 * thick * grow).x,
+            sd_tapered_capsule(p, pl2_b, pl_cr3, rl2_b * 0.70, 2.6 * thick * grow).x
+        )
+    );
+
+    // --- D. TAJUK MAHKOTA TENGAH (Apex Center Crown ~64% Layar) ---
+    let p_ap_t1 = vec2<f32>(cx - 42.0, lip_center_y - h_fork - h_crown * 0.80);
+    let p_ap_t2 = vec2<f32>(cx - 15.0, lip_center_y - h_fork - h_crown * 1.00); // Puncak tertinggi 64% layar!
+    let p_ap_t3 = vec2<f32>(cx + 22.0, lip_center_y - h_fork - h_crown * 0.86);
+    let p_ap_t4 = vec2<f32>(cx + 48.0, lip_center_y - h_fork - h_crown * 0.72);
+    let d_t_apex_crown = min(
+        sd_tapered_capsule(p, pl_ap2, p_ap_t1, rl_ap2 * 0.75, 4.6 * thick * grow).x,
+        min(
+            sd_tapered_capsule(p, pl_ap2, p_ap_t2, rl_ap2 * 0.80, 2.5 * thick * grow).x,
+            min(
+                sd_tapered_capsule(p, pl_ap2, p_ap_t3, rl_ap2 * 0.72, 4.2 * thick * grow).x,
+                sd_tapered_capsule(p, p_ap_t3, p_ap_t4, 4.2 * thick * grow, 2.2 * thick * grow).x
+            )
+        )
+    );
+
+    // --- E. TAJUK KANAN ATAS (Upper Right Crown ~61% Layar) ---
+    let pr_cr1 = vec2<f32>(cx + 175.0, lip_center_y - h_fork - h_crown * 0.78);
+    let pr_cr2 = vec2<f32>(cx + 160.0, lip_center_y - h_fork - h_crown * 0.94);
+    let pr_cr3 = vec2<f32>(cx + 210.0, lip_center_y - h_fork - h_crown * 0.68);
+    let d_t_right_crown = min(
+        sd_tapered_capsule(p, pr2_b, pr_cr1, rr2_b * 0.75, 4.6 * thick * grow).x,
+        min(
+            sd_tapered_capsule(p, pr_cr1, pr_cr2, 4.6 * thick * grow, 2.4 * thick * grow).x,
+            sd_tapered_capsule(p, pr2_b, pr_cr3, rr2_b * 0.68, 2.4 * thick * grow).x
+        )
+    );
+
+    // --- F. TIRAI RANTING MENGGANTUNG BAWAH (Weeping Filigree di Bawah Dahan) ---
+    // Ranting gantung kiri 1 (bawah dahan pl1)
+    let pl_wp_a1 = vec2<f32>(cx - 95.0, lip_center_y - h_fork - h_crown * 0.08);
+    let pl_wp_a2 = vec2<f32>(cx - 105.0, lip_center_y - h_fork + 14.0);
+    let d_wp_l1 = min(
+        sd_tapered_capsule(p, pl1, pl_wp_a1, 4.2 * thick * grow, 2.5 * thick * grow).x,
+        sd_tapered_capsule(p, pl_wp_a1, pl_wp_a2, 2.5 * thick * grow, 1.6 * thick * grow).x
+    );
+
+    // Ranting gantung kiri 2 (bawah dahan pl1_a)
+    let pl_wp_b1 = vec2<f32>(cx - 200.0, lip_center_y - h_fork - h_crown * 0.28);
+    let pl_wp_b2 = vec2<f32>(cx - 215.0, lip_center_y - h_fork - h_crown * 0.16);
+    let d_wp_l2 = min(
+        sd_tapered_capsule(p, pl1_a, pl_wp_b1, 3.8 * thick * grow, 2.2 * thick * grow).x,
+        sd_tapered_capsule(p, pl_wp_b1, pl_wp_b2, 2.2 * thick * grow, 1.5 * thick * grow).x
+    );
+
+    // Ranting gantung kanan 1 (bawah siku kubah pr2)
+    let pr_wp_a1 = vec2<f32>(cx + 80.0, lip_center_y - h_fork - h_crown * 0.10);
+    let pr_wp_a2 = vec2<f32>(cx + 90.0, lip_center_y - h_fork + 8.0);
+    let d_wp_r1 = min(
+        sd_tapered_capsule(p, pr2, pr_wp_a1, 4.0 * thick * grow, 2.4 * thick * grow).x,
+        sd_tapered_capsule(p, pr_wp_a1, pr_wp_a2, 2.4 * thick * grow, 1.6 * thick * grow).x
+    );
+
+    // Ranting gantung kanan 2 (bawah dahan mendatar pr1_a)
+    let pr_wp_b1 = vec2<f32>(cx + 185.0, lip_center_y - h_fork - h_crown * 0.12);
+    let pr_wp_b2 = vec2<f32>(cx + 205.0, lip_center_y - h_fork - h_crown * 0.02);
+    let d_wp_r2 = min(
+        sd_tapered_capsule(p, pr1_a, pr_wp_b1, 3.8 * thick * grow, 2.2 * thick * grow).x,
+        sd_tapered_capsule(p, pr_wp_b1, pr_wp_b2, 2.2 * thick * grow, 1.5 * thick * grow).x
+    );
+
+    let d_weeping = min(min(d_wp_l1, d_wp_l2), min(d_wp_r1, d_wp_r2));
+
+    // FUSI ANATOMIS SELURUH DAHAN TERSIER:
+    let d_tertiary_wings = min(min(min(d_t_left_reach, d_t_left_up), d_t_left_wp), min(min(d_t_right_reach, d_t_right_up), d_t_right_wp));
+    let d_tertiary_crowns = min(min(d_t_left_crown, d_t_apex_crown), d_t_right_crown);
+    let d_all_tertiary = min(min(d_tertiary_wings, d_tertiary_crowns), d_weeping);
+
+    // Gabungkan seluruh cabang (Primer + Sekunder + Tersier)
+    let d_l_branch = smin_cubic(smin_cubic(d_l_primary, d_l_secondary, 5.5 * thick * grow), d_all_tertiary, 4.0 * thick * grow);
+    let d_r_branch = smin_cubic(smin_cubic(d_r_primary, d_r_secondary, 5.5 * thick * grow), d_all_tertiary, 4.0 * thick * grow);
+    let d_crown = min(d_l_branch, d_r_branch);
+    var d_tree = smin_cubic(d_main_trunk, d_crown, 6.5 * thick * grow);
+
+    if (d_tree > 24.0) {
+        return vec4<f32>(in_col, in_a);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SHADING KAYU TUA ALAMI & KINTSUGI EMAS CAIR (Authentic Aged Wood & Seams)
+    // Sesuai referensi: Kulit kayu bertekstur arang-coklat (charcoal umber) dengan serat
+    // longitudinal berotot, bayangan 3D di sisi bawah, highlight abu kayu di atas,
+    // dan urat emas cair Kintsugi yang mengalir tajam di sela-sela retakan kayu.
+    // ─────────────────────────────────────────────────────────────────────────
+    let bark_shadow = hex(36.0, 25.0, 20.0);    // Bayangan gelap di bawah dahan & celah dalam
+    let bark_base   = hex(72.0, 56.0, 48.0);    // Warna dasar kulit kayu Sakura tua
+    let bark_mid    = hex(104.0, 84.0, 72.0);   // Tekstur kayu lapuk berserat alami
+    let bark_lit    = hex(152.0, 134.0, 120.0); // Highlight abu kayu kering terkena cahaya atas
+    let gold_liquid = hex(242.0, 186.0, 78.0);  // Emas cair Kintsugi murni
+    let gold_core   = hex(255.0, 248.0, 218.0); // Pendaran inti emas ultra terang
+    let sakura_blush= hex(248.0, 170.0, 192.0); // Rona sakura anggun di pucuk dahan
+
+    let aa = 1.15;
+    let tree_mask = (1.0 - smoothstep(-aa, aa, d_tree)) * grow;
+    let aura_glow = pow(clamp(1.0 - max(d_tree, 0.0) / 18.0, 0.0, 1.0), 2.2) * (0.35 + 0.12 * sin(time * 2.0)) * grow;
+
+    // Normalisasi kedalaman radial dari tepi ke pusat silinder batang (0.0 tepi, 1.0 inti)
+    let n_rad = clamp(-d_tree / max(24.0 * thick, 12.0), 0.0, 1.0);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SERAT OTOT KAYU MEMILIN (Twisted Longitudinal Bark Grain)
+    // ─────────────────────────────────────────────────────────────────────────
+    let twist_field = sin(p.x * 0.16 + sin(p.y * 0.032) * 3.8);
+    let bark_grooves = sin(p.x * 0.38 + p.y * 0.045 + twist_field * 2.4) * 0.5 + 0.5;
+    let fine_fibers  = sin(p.y * 0.85 + p.x * 0.14) * 0.09;
+
+    // Pencahayaan 3D Silindris: Cahaya natural datang dari atas-kiri
+    let light_top = clamp(0.52 + 0.48 * sin(p.y * 0.018 - p.x * 0.035 + 0.8), 0.0, 1.0);
+    let under_shadow = smoothstep(0.40, 0.95, clamp(1.0 - light_top, 0.0, 1.0));
+
+    // Blending material kulit kayu solid
+    var wood_col = mix(bark_shadow, bark_base, smoothstep(0.05, 0.40, light_top));
+    wood_col = mix(wood_col, bark_mid, bark_grooves * 0.70 + 0.15);
+    wood_col = mix(wood_col, bark_lit, pow(light_top, 1.6) * smoothstep(0.18, 0.75, n_rad) + fine_fibers);
+    wood_col = mix(wood_col, bark_shadow, under_shadow * 0.55);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // URAT RETAKAN EMAS KINTSUGI (Sharp Liquid Gold Running Along Wood Fissures)
+    // ─────────────────────────────────────────────────────────────────────────
+    let flow_phase = p.y * 0.038 - time * 2.4 + p.x * 0.018;
+    let flow_pulse = 0.5 + 0.5 * sin(flow_phase);
+
+    // 1. Retakan tajam Kintsugi di alur kulit kayu (Fissure seams)
+    let crack_pat = abs(sin(p.x * 0.15 + p.y * 0.082 + twist_field * 2.8));
+    let fissure_crack = pow(clamp(1.0 - crack_pat / 0.16, 0.0, 1.0), 3.5) * smoothstep(0.10, 0.70, n_rad);
+
+    // 2. Aliran energi inti dalam dahan (Core energy spine)
+    let core_spine = pow(n_rad, 3.8) * (0.40 + 0.60 * flow_pulse);
+
+    // Leburkan emas ke retakan kayu: dominan kayu solid, emas mengalir di retakan & inti
+    let kintsugi_factor = max(fissure_crack * 0.90, core_spine * 0.65);
+    let gold_shine = mix(gold_liquid, gold_core, pow(n_rad, 2.0) * flow_pulse);
+
+    var r_col = mix(wood_col, gold_shine, kintsugi_factor);
+
+    // Rona sakura anggun di dahan-dahan paling ujung
+    let height_norm = clamp((lip_center_y - p.y) / h_total, 0.0, 1.0);
+    r_col = mix(r_col, sakura_blush, smoothstep(0.75, 1.0, height_norm) * 0.25);
+
+    // Aura pendaran hangat di tepi pohon
+    let aura_col = mix(gold_liquid, sakura_blush, 0.28);
+    var col = in_col;
+    var alpha = in_a;
+    col = mix(col, aura_col, aura_glow * 0.40 * g);
+    col = mix(col, r_col, tree_mask * 0.98);
+    alpha = max(alpha, max(tree_mask * 0.98, aura_glow * 0.65) * g);
 
     return vec4<f32>(col, alpha);
 }
