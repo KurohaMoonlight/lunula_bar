@@ -1,5 +1,5 @@
 // =============================================================================
-// LUNULA BAR — INSTANCED 2.5D FUKINAGASHI BONSAI TREE SHADER
+// LUNULA BAR — INSTANCED 2.5D FUKINAGASHI SAKURA TREE SHADER
 //   - Merender 600–1400 segmen batang, dahan, & ranting mikro dalam 1 draw call
 //   - Pangkal batang (s = 0..0.15) menyatu mulus (seamless nebari melt) dengan
 //     akar energi cair di `09_start_roots.wgsl` pada koordinat `tree_base` identik
@@ -39,7 +39,7 @@ struct GlobUniforms {
     tree_style: vec4<f32>,
 };
 
-struct BonsaiSeg {
+struct SakuraSeg {
     a: vec2<f32>,
     b: vec2<f32>,
     r0: f32,
@@ -60,7 +60,7 @@ struct BonsaiSeg {
 var<uniform> u: GlobUniforms;
 
 @group(0) @binding(1)
-var<storage, read> bonsai_segs: array<BonsaiSeg>;
+var<storage, read> sakura_segs: array<SakuraSeg>;
 
 struct TreeVertOut {
     @builtin(position) clip_pos: vec4<f32>,
@@ -136,7 +136,7 @@ fn vs_tree(
 ) -> TreeVertOut {
     var out: TreeVertOut;
     let p2_c = clamp(u.start_info.y, 0.0, 1.0);
-    let seg = bonsai_segs[inst_idx];
+    let seg = sakura_segs[inst_idx];
 
     let g_seg = smoothstep(seg.grow_start, max(seg.grow_end, seg.grow_start + 0.02), p2_c);
     if (p2_c <= 0.004 || g_seg <= 0.004) {
@@ -306,7 +306,7 @@ fn fs_tree(in: TreeVertOut) -> @location(0) vec4<f32> {
     var col = gold_warm;
 
     if (style_id < 0.5) {
-        // STYLE 0: HYBRID — Kulit bonsai 2.5D amber-perunggu berurat + inti energi cair emas
+        // STYLE 0: HYBRID — Kulit kayu sakura 2.5D amber-perunggu berurat + inti energi cair emas
         let bark_shadow = hex(36.0, 22.0, 13.0);
         let bark_mid    = hex(128.0, 82.0, 36.0);
         let bark_lit    = hex(216.0, 168.0, 96.0);
@@ -327,7 +327,7 @@ fn fs_tree(in: TreeVertOut) -> @location(0) vec4<f32> {
         col = col * mix(0.90, 1.15, streamlines);
         col = mix(col, gold_core, spec * 0.38);
     } else {
-        // STYLE 2: WOOD + KINTSUGI — Kayu bonsai sumi-perak berurat + urat Kintsugi emas cair
+        // STYLE 2: WOOD + KINTSUGI — Kayu sakura sumi-perak berurat + urat Kintsugi emas cair
         let sumi_shadow = hex(26.0, 22.0, 20.0);
         let bronze_bark = hex(92.0, 68.0, 48.0);
         let silver_lit  = hex(198.0, 178.0, 146.0);

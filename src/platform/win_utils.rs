@@ -1,22 +1,25 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
-    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_NCRENDERING_POLICY,
-    DWMWA_WINDOW_CORNER_PREFERENCE, DWMNCRP_DISABLED,
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMNCRP_DISABLED,
+    DWMWA_NCRENDERING_POLICY, DWMWA_WINDOW_CORNER_PREFERENCE,
 };
 use windows::Win32::Graphics::Gdi::SetWindowRgn;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallWindowProcW, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE,
-    GWL_STYLE, WM_ACTIVATE, WM_ACTIVATEAPP, WM_KILLFOCUS, WM_NCHITTEST, WM_NCCALCSIZE, WM_NCPAINT,
-    WM_NCACTIVATE, WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
-    WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WNDPROC,
+    CallNextHookEx, CallWindowProcW, GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW,
+    SetWindowPos, SetWindowsHookExW, UnhookWindowsHookEx, GWLP_WNDPROC, GWL_EXSTYLE, GWL_STYLE,
+    HHOOK, MSLLHOOKSTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    WH_MOUSE_LL, WM_ACTIVATE, WM_ACTIVATEAPP, WM_DESTROY, WM_KILLFOCUS, WM_NCACTIVATE,
+    WM_NCCALCSIZE, WM_NCHITTEST, WM_NCPAINT, WNDPROC, WS_BORDER, WS_CAPTION, WS_DLGFRAME,
+    WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP,
+    WS_SYSMENU, WS_THICKFRAME,
 };
 
 static PREV_WNDPROC: AtomicUsize = AtomicUsize::new(0);
 static TARGET_HWND: AtomicUsize = AtomicUsize::new(0);
+static MOUSE_HOOK: AtomicUsize = AtomicUsize::new(0);
 static IS_CLICKTHROUGH: AtomicBool = AtomicBool::new(false);
 
 // Dynamic hit-test zones for passing clicks through outside the glob
@@ -25,13 +28,14 @@ pub static BAR_TOP_Y: AtomicI32 = AtomicI32::new(i32::MAX);
 pub static BAR_LEFT_X: AtomicI32 = AtomicI32::new(0);
 pub static BAR_RIGHT_X: AtomicI32 = AtomicI32::new(0);
 
-// Zone 2: Main Flyout
+// Zone 2: Main Flyout / Floating Search Pill
 pub static FLY_TOP_Y: AtomicI32 = AtomicI32::new(i32::MAX);
 pub static FLY_BOTTOM_Y: AtomicI32 = AtomicI32::new(i32::MAX);
 pub static FLY_LEFT_X: AtomicI32 = AtomicI32::new(0);
 pub static FLY_RIGHT_X: AtomicI32 = AtomicI32::new(0);
 pub static FLY_CX: AtomicI32 = AtomicI32::new(0);
 pub static FLY_CY: AtomicI32 = AtomicI32::new(0);
+pub static FLY_HAS_STALK: AtomicBool = AtomicBool::new(false);
 
 // Zone 3: Sub-Flyout Slot 1
 pub static SUB1_TOP_Y: AtomicI32 = AtomicI32::new(i32::MAX);
@@ -48,7 +52,10 @@ pub static SUB2_RIGHT_X: AtomicI32 = AtomicI32::new(0);
 /// Flag yang diset saat window kehilangan fokus atau di-klik di luar
 pub static SHOULD_DISMISS_FLYOUT: AtomicBool = AtomicBool::new(false);
 
-/// Evaluasi SDF CPU yang mencerminkan bentuk fisik taskbar, flyout, dan chain sub-flyout (Slot 1 & Slot 2)
+/// Evaluasi hit-test CPU untuk taskbar, flyout / floating search pill, dan chain sub-flyout.
+/// Saat `flyout_has_stalk == false` (mode Pohon Sakura + Zen Search Pill), area di bawah pill
+/// 100% bolong (tidak menghasilkan phantom stalk hitbox).
+#[allow(clippy::too_many_arguments)]
 pub fn cpu_hit_test(
     x: i32,
     y: i32,
@@ -56,6 +63,7 @@ pub fn cpu_hit_test(
     bar_left: i32,
     bar_right: i32,
     flyout: Option<(i32, i32, i32, i32, i32, i32)>,
+    flyout_has_stalk: bool,
     sub1: Option<(i32, i32, i32, i32)>,
     sub2: Option<(i32, i32, i32, i32)>,
 ) -> bool {
@@ -64,13 +72,13 @@ pub fn cpu_hit_test(
         return true;
     }
 
-    // 2. Main Flyout / Search Pill & Stalk/Leher
+    // 2. Main Flyout / Floating Zen Search Pill (+ Stalk/Leher khusus Tray Flyout)
     if let Some((fly_top, fly_bottom, fly_l, fly_r, fly_cx, fly_cy)) = flyout {
         if y >= (fly_top - 8) && y <= (fly_bottom + 8) && x >= (fly_l - 8) && x <= (fly_r + 8) {
             return true;
         }
 
-        if y > fly_bottom && y < bar_top {
+        if flyout_has_stalk && y > fly_bottom && y < bar_top {
             let stalk_progress = (y - fly_bottom) as f32 / (bar_top - fly_bottom).max(1) as f32;
             let half_width = 38.0 + 35.0 * (stalk_progress - 0.5).powi(2) * 4.0;
             if (x - fly_cx).abs() <= half_width as i32 + 8 {
@@ -111,12 +119,139 @@ pub fn cpu_hit_test(
     false
 }
 
+/// Evaluasi lock-free terhadap zona hit-test atomik saat ini untuk koordinat layar (x, y).
+#[inline]
+fn eval_current_hit_test(x: i32, y: i32) -> bool {
+    let bar_top = BAR_TOP_Y.load(Ordering::Relaxed);
+    let bar_left = BAR_LEFT_X.load(Ordering::Relaxed);
+    let bar_right = BAR_RIGHT_X.load(Ordering::Relaxed);
+
+    let fly_top = FLY_TOP_Y.load(Ordering::Relaxed);
+    let flyout = if fly_top < i32::MAX - 1000 {
+        Some((
+            fly_top,
+            FLY_BOTTOM_Y.load(Ordering::Relaxed),
+            FLY_LEFT_X.load(Ordering::Relaxed),
+            FLY_RIGHT_X.load(Ordering::Relaxed),
+            FLY_CX.load(Ordering::Relaxed),
+            FLY_CY.load(Ordering::Relaxed),
+        ))
+    } else {
+        None
+    };
+    let flyout_has_stalk = FLY_HAS_STALK.load(Ordering::Relaxed);
+
+    let s1_top = SUB1_TOP_Y.load(Ordering::Relaxed);
+    let sub1 = if s1_top < i32::MAX - 1000 {
+        Some((
+            s1_top,
+            SUB1_BOTTOM_Y.load(Ordering::Relaxed),
+            SUB1_LEFT_X.load(Ordering::Relaxed),
+            SUB1_RIGHT_X.load(Ordering::Relaxed),
+        ))
+    } else {
+        None
+    };
+
+    let s2_top = SUB2_TOP_Y.load(Ordering::Relaxed);
+    let sub2 = if s2_top < i32::MAX - 1000 {
+        Some((
+            s2_top,
+            SUB2_BOTTOM_Y.load(Ordering::Relaxed),
+            SUB2_LEFT_X.load(Ordering::Relaxed),
+            SUB2_RIGHT_X.load(Ordering::Relaxed),
+        ))
+    } else {
+        None
+    };
+
+    cpu_hit_test(
+        x,
+        y,
+        bar_top,
+        bar_left,
+        bar_right,
+        flyout,
+        flyout_has_stalk,
+        sub1,
+        sub2,
+    )
+}
+
+/// Sinkronisasi flag `WS_EX_TRANSPARENT` + flush `SWP_FRAMECHANGED` hanya saat status berubah.
+/// Mempertahankan `WS_EX_LAYERED` agar click-through menembus ke proses aplikasi lain di belakangnya.
+unsafe fn sync_clickthrough_state(hit: bool) {
+    let want_clickthrough = !hit;
+    let current = IS_CLICKTHROUGH.load(Ordering::Relaxed);
+    if want_clickthrough == current {
+        return;
+    }
+
+    let hwnd_raw = TARGET_HWND.load(Ordering::Relaxed);
+    if hwnd_raw == 0 {
+        return;
+    }
+
+    let hwnd = HWND(hwnd_raw as _);
+    unsafe {
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let new_ex = if want_clickthrough {
+            ex_style | (WS_EX_LAYERED.0 as isize) | (WS_EX_TRANSPARENT.0 as isize)
+        } else {
+            (ex_style | (WS_EX_LAYERED.0 as isize)) & !(WS_EX_TRANSPARENT.0 as isize)
+        };
+        let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex);
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+    }
+    IS_CLICKTHROUGH.store(want_clickthrough, Ordering::Relaxed);
+}
+
+/// Hook mouse low-level ultra-ringan: membalik `WS_EX_TRANSPARENT` secara instan saat kursor
+/// melintasi batas interaktif (Taskbar / Flyout / Search Pill) sebelum event klik dikirim OS,
+/// sehingga menghilangkan race condition 1-frame VSync.
+unsafe extern "system" fn mouse_ll_hook_proc(
+    ncode: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if ncode >= 0 && lparam.0 != 0 {
+        let pt = unsafe { (*(lparam.0 as *const MSLLHOOKSTRUCT)).pt };
+        let hit = eval_current_hit_test(pt.x, pt.y);
+        unsafe {
+            sync_clickthrough_state(hit);
+        }
+    }
+    unsafe { CallNextHookEx(None, ncode, wparam, lparam) }
+}
+
+/// Lepas global mouse hook secara bersih saat aplikasi keluar.
+pub fn cleanup_hooks() {
+    let hook_raw = MOUSE_HOOK.swap(0, Ordering::AcqRel);
+    if hook_raw != 0 {
+        unsafe {
+            let _ = UnhookWindowsHookEx(HHOOK(hook_raw as _));
+        }
+    }
+}
+
 unsafe extern "system" fn sub_wndproc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    if msg == WM_DESTROY {
+        cleanup_hooks();
+    }
+
     // 1. Mencegah DWM menggambar non-client area (titlebar, tombol caption close, minimize, maximize)
     if msg == WM_NCCALCSIZE {
         return LRESULT(0);
@@ -146,50 +281,7 @@ unsafe extern "system" fn sub_wndproc(
         let x = (lparam.0 & 0xFFFF) as i16 as i32;
         let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
 
-        let bar_top = BAR_TOP_Y.load(Ordering::Relaxed);
-        let bar_left = BAR_LEFT_X.load(Ordering::Relaxed);
-        let bar_right = BAR_RIGHT_X.load(Ordering::Relaxed);
-
-        let fly_top = FLY_TOP_Y.load(Ordering::Relaxed);
-        let flyout = if fly_top < i32::MAX - 1000 {
-            Some((
-                fly_top,
-                FLY_BOTTOM_Y.load(Ordering::Relaxed),
-                FLY_LEFT_X.load(Ordering::Relaxed),
-                FLY_RIGHT_X.load(Ordering::Relaxed),
-                FLY_CX.load(Ordering::Relaxed),
-                FLY_CY.load(Ordering::Relaxed),
-            ))
-        } else {
-            None
-        };
-
-        let s1_top = SUB1_TOP_Y.load(Ordering::Relaxed);
-        let sub1 = if s1_top < i32::MAX - 1000 {
-            Some((
-                s1_top,
-                SUB1_BOTTOM_Y.load(Ordering::Relaxed),
-                SUB1_LEFT_X.load(Ordering::Relaxed),
-                SUB1_RIGHT_X.load(Ordering::Relaxed),
-            ))
-        } else {
-            None
-        };
-
-        let s2_top = SUB2_TOP_Y.load(Ordering::Relaxed);
-        let sub2 = if s2_top < i32::MAX - 1000 {
-            Some((
-                s2_top,
-                SUB2_BOTTOM_Y.load(Ordering::Relaxed),
-                SUB2_LEFT_X.load(Ordering::Relaxed),
-                SUB2_RIGHT_X.load(Ordering::Relaxed),
-            ))
-        } else {
-            None
-        };
-
-        let hit = cpu_hit_test(x, y, bar_top, bar_left, bar_right, flyout, sub1, sub2);
-        if hit {
+        if eval_current_hit_test(x, y) {
             return LRESULT(1); // HTCLIENT
         } else {
             return LRESULT(-1); // HTTRANSPARENT
@@ -216,6 +308,7 @@ pub fn update_hittest_zones(
     _window_width: i32,
     _window_height: i32,
     flyout: Option<(i32, i32, i32, i32, i32, i32)>,
+    flyout_has_stalk: bool,
     sub1: Option<(i32, i32, i32, i32)>,
     sub2: Option<(i32, i32, i32, i32)>,
 ) {
@@ -230,6 +323,7 @@ pub fn update_hittest_zones(
         FLY_RIGHT_X.store(right, Ordering::Relaxed);
         FLY_CX.store(cx, Ordering::Relaxed);
         FLY_CY.store(cy, Ordering::Relaxed);
+        FLY_HAS_STALK.store(flyout_has_stalk, Ordering::Relaxed);
     } else {
         FLY_TOP_Y.store(i32::MAX, Ordering::Relaxed);
         FLY_BOTTOM_Y.store(i32::MAX, Ordering::Relaxed);
@@ -237,6 +331,7 @@ pub fn update_hittest_zones(
         FLY_RIGHT_X.store(0, Ordering::Relaxed);
         FLY_CX.store(0, Ordering::Relaxed);
         FLY_CY.store(0, Ordering::Relaxed);
+        FLY_HAS_STALK.store(false, Ordering::Relaxed);
     }
 
     if let Some((top, bottom, left, right)) = sub1 {
@@ -263,31 +358,23 @@ pub fn update_hittest_zones(
         SUB2_RIGHT_X.store(0, Ordering::Relaxed);
     }
 
-    // Dynamic WS_EX_TRANSPARENT toggle berdasarkan hit-testing kursor
-    // Tanpa SetWindowRgn! Pohon mekar bebas tanpa terpotong dan area luar tembus klik 100%!
-    let hwnd_raw = TARGET_HWND.load(Ordering::Relaxed);
-    if hwnd_raw != 0 {
-        unsafe {
-            use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
-            use windows::Win32::Foundation::POINT;
-            let mut pt = POINT { x: 0, y: 0 };
-            if GetCursorPos(&mut pt).is_ok() {
-                let hit = cpu_hit_test(pt.x, pt.y, bar_top, bar_left, bar_right, flyout, sub1, sub2);
-                let current_clickthrough = IS_CLICKTHROUGH.load(Ordering::Relaxed);
-                let hwnd = HWND(hwnd_raw as _);
-
-                if !hit && !current_clickthrough {
-                    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                    let new_ex = ex_style | (WS_EX_TRANSPARENT.0 as isize);
-                    let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex);
-                    IS_CLICKTHROUGH.store(true, Ordering::Relaxed);
-                } else if hit && current_clickthrough {
-                    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                    let new_ex = ex_style & !(WS_EX_TRANSPARENT.0 as isize);
-                    let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex);
-                    IS_CLICKTHROUGH.store(false, Ordering::Relaxed);
-                }
-            }
+    // Sinkronisasi immediate untuk kasus zona berubah saat kursor sedang diam
+    // (mis. Start Menu / Search Pill / Flyout baru saja muncul atau tertutup di bawah kursor).
+    unsafe {
+        let mut pt = POINT { x: 0, y: 0 };
+        if GetCursorPos(&mut pt).is_ok() {
+            let hit = cpu_hit_test(
+                pt.x,
+                pt.y,
+                bar_top,
+                bar_left,
+                bar_right,
+                flyout,
+                flyout_has_stalk,
+                sub1,
+                sub2,
+            );
+            sync_clickthrough_state(hit);
         }
     }
 }
@@ -366,6 +453,15 @@ pub fn setup_transparent_window(window: &winit::window::Window) {
                 );
                 if prev != 0 {
                     PREV_WNDPROC.store(prev as usize, Ordering::Relaxed);
+                }
+
+                // Pasang low-level mouse hook sekali untuk click-through 0-frame-latency
+                if MOUSE_HOOK.load(Ordering::Acquire) == 0 {
+                    if let Ok(hook) =
+                        SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_ll_hook_proc), None, 0)
+                    {
+                        MOUSE_HOOK.store(hook.0 as usize, Ordering::Release);
+                    }
                 }
             }
         }

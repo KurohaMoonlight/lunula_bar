@@ -35,6 +35,9 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+[profile.dev]
+opt-level = 2
+
 # Optimize heavy dependencies (wgpu, naga, glyphon, cosmic-text) even in `cargo run`
 # while keeping crate compilation incremental and fast!
 [profile.dev.package."*"]

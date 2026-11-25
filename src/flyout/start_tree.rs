@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 
-/// Kapasitas maksimum segmen bonsai fukinagashi 5-tingkat di GPU storage buffer.
+/// Kapasitas maksimum segmen pohon sakura fukinagashi 5-tingkat di GPU storage buffer.
 /// 1400 * 64 byte = 89.6 KB (sangat kecil untuk storage buffer, < 0.2ms render time).
 pub const MAX_TREE_SEGS: usize = 1400;
 
@@ -29,7 +29,7 @@ pub struct SakuraBlossomGpu {
     pub sway_weight: f32,
 }
 
-/// Satu segmen kapsul meruncing pohon bonsai (64 byte = 4 x vec4<f32>, 16-byte aligned).
+/// Satu segmen kapsul meruncing pohon sakura (64 byte = 4 x vec4<f32>, 16-byte aligned).
 ///
 /// Sistem koordinat RELATIF terhadap `tree_base = (bar_left + 78.0, tree_bar_top + 11.0)`
 /// (identik dengan `start_roots.rs` sehingga pangkal batang 100% terkunci pada pusat nebari akar):
@@ -44,7 +44,7 @@ pub struct SakuraBlossomGpu {
 /// - `role`: `0.0` = rangka permanen, `1.0` = slot cabang atas fix (untuk Search Bar nanti), `2.0` = cabang dinamis search nanti.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub struct BonsaiSegGpu {
+pub struct SakuraSegGpu {
     pub a: [f32; 2],
     pub b: [f32; 2],
     pub r0: f32,
@@ -63,7 +63,7 @@ pub struct BonsaiSegGpu {
 
 /// Output generator pohon sakura fukinagashi prosedural.
 pub struct ProceduralTreeData {
-    pub segs: Vec<BonsaiSegGpu>,
+    pub segs: Vec<SakuraSegGpu>,
     pub seg_count: u32,
     pub blossoms: Vec<SakuraBlossomGpu>,
     pub blossom_count: u32,
@@ -135,9 +135,9 @@ fn catmull_rom_chain(pts: &[[f32; 2]], steps_per_span: usize) -> Vec<[f32; 2]> {
     out
 }
 
-/// Generator Pohon Bonsai *Fukinagashi* (Windswept) 5-Tingkat.
+/// Generator Pohon Sakura *Fukinagashi* (Windswept) 5-Tingkat.
 ///
-/// Merancang anatomi bonsai yang setia pada referensi:
+/// Merancang anatomi pohon sakura yang setia pada referensi:
 /// - **Level 0:** Pangkal *nebari* melebar cekung menyatu dengan akar taskbar + batang utama kekar berotot
 ///   dengan lengkungan C-arch/S-arch berkarakter & kontras taper dramatis.
 /// - **Level 1:** 7 dahan primer bertingkat asimetris menyapu kuat ke kanan (*windswept tiers*)
@@ -153,7 +153,7 @@ pub fn generate_fukinagashi_tree(
 ) -> ProceduralTreeData {
     let mut rng = Rng::new(seed ^ 0x517C_C1B7_2722_0A95);
     let max_segs = if low_quality { 620 } else { MAX_TREE_SEGS };
-    let mut segs: Vec<BonsaiSegGpu> = Vec::with_capacity(max_segs);
+    let mut segs: Vec<SakuraSegGpu> = Vec::with_capacity(max_segs);
 
     let sc = (rise_h / 440.0).clamp(0.65, 1.65);
     let thick = trunk_thickness.clamp(0.70, 1.65);
@@ -163,7 +163,7 @@ pub fn generate_fukinagashi_tree(
     // Helper tambah segmen dengan kalkulasi otomatis `grow_start`/`grow_end` & `sway_weight`.
     #[allow(clippy::too_many_arguments)]
     fn push_seg(
-        segs: &mut Vec<BonsaiSegGpu>,
+        segs: &mut Vec<SakuraSegGpu>,
         max_segs: usize,
         rng: &mut Rng,
         a: [f32; 2],
@@ -187,7 +187,7 @@ pub fn generate_fukinagashi_tree(
         let g_span = (0.14 + (1.0 - level * 0.14) * 0.08).clamp(0.10, 0.24);
         let g_end = (g_start + g_span).min(1.0);
 
-        segs.push(BonsaiSegGpu {
+        segs.push(SakuraSegGpu {
             a,
             b,
             r0,
@@ -302,7 +302,7 @@ pub fn generate_fukinagashi_tree(
 
     for (i, &pt) in raw_trunk.iter().enumerate() {
         let s = (i as f32) / ((n_tn - 1) as f32);
-        // Kontras taper dramatis khas bonsai tua: pangkal sangat kokoh -> mahkota ramping
+        // Kontras taper dramatis khas pohon sakura tua: pangkal sangat kokoh -> mahkota ramping
         let taper = (1.0 - s).powf(1.42) * (0.78 + 0.22 * (s * std::f32::consts::FRAC_PI_2).cos());
         let gnarl_burl = 1.0 + 0.09 * (s * 19.0 + 0.5).sin() * (1.0 - s * 0.4);
         let r = (r_base * taper * gnarl_burl).max(3.6 * sc);
@@ -366,7 +366,7 @@ pub fn generate_fukinagashi_tree(
     // ─────────────────────────────────────────────────────────────────────────
     #[allow(clippy::too_many_arguments)]
     fn grow_twig(
-        segs: &mut Vec<BonsaiSegGpu>,
+        segs: &mut Vec<SakuraSegGpu>,
         max_segs: usize,
         rng: &mut Rng,
         sc: f32,
@@ -491,7 +491,7 @@ pub fn generate_fukinagashi_tree(
                 );
             }
         } else if !low_quality && rng.f32() < 0.72 {
-            // Ujung ranting rambut kembar (*winter bonsai tip flick*)
+            // Ujung ranting rambut kembar (*winter sakura tip flick*)
             for &sp in &[-0.34_f32, 0.22] {
                 let ta = cur_ang + sp + rng.range(-0.12, 0.12);
                 let tl = rng.range(6.0, 13.0) * sc;
@@ -517,7 +517,7 @@ pub fn generate_fukinagashi_tree(
     // Helper bangun 1 dahan primer berlekuk + taburan ranting mikro horizontal di sepanjangnya
     #[allow(clippy::too_many_arguments)]
     fn build_primary_limb(
-        segs: &mut Vec<BonsaiSegGpu>,
+        segs: &mut Vec<SakuraSegGpu>,
         max_segs: usize,
         rng: &mut Rng,
         sc: f32,
@@ -738,7 +738,7 @@ pub fn generate_fukinagashi_tree(
 
     let seg_count = segs.len().min(MAX_TREE_SEGS) as u32;
     // Pad hingga MAX_TREE_SEGS agar `queue.write_buffer` ukuran tetap & aman
-    segs.resize(MAX_TREE_SEGS, BonsaiSegGpu::zeroed());
+    segs.resize(MAX_TREE_SEGS, SakuraSegGpu::zeroed());
 
     ProceduralTreeData {
         segs,

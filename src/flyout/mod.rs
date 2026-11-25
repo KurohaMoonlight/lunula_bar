@@ -1,7 +1,8 @@
 pub mod chain;
+pub mod hit_test;
+pub mod search_index;
 pub mod start_menu;
 pub mod start_roots;
-pub mod hit_test;
 pub mod text_layout;
 pub mod types;
 

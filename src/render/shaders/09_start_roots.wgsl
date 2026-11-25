@@ -76,6 +76,10 @@ fn eval_win_entangle_layer(
     if (g <= 0.005) {
         return vec4<f32>(1e5, 0.0, 0.0, -1.0);
     }
+    let q_box = abs(p - win_center);
+    if (q_box.x > 46.0 || q_box.y > 46.0) {
+        return vec4<f32>(1e5, 0.0, 0.0, -1.0);
+    }
 
     // Hover: melonggar lembut (+1.8px); Klik: mengencang sesaat (-3.0px) lalu rileks via pegas YAML
     let c_off = -1.2 * g - cinch * 3.0 + hover * 1.8;
@@ -1104,9 +1108,17 @@ fn eval_sakura_blossom_cluster(
 fn get_search_pill_rest_center(cx: f32, half_w: f32, lip_center_y: f32, win_h: f32) -> vec2<f32> {
     let sx = (half_w / 450.0) * 1.28;
     let h_fork = win_h * 0.42;
-    let pill_cx = cx + max(205.0, 185.0 * sx);
-    let pill_cy = lip_center_y - h_fork * 0.28;
+    let pill_cx = cx + max(215.0, 195.0 * sx);
+    let pill_cy = lip_center_y - h_fork * 0.44;
     return vec2<f32>(pill_cx, pill_cy);
+}
+
+fn get_search_results_rest_center(cx: f32, half_w: f32, lip_center_y: f32, win_h: f32) -> vec2<f32> {
+    let sx = (half_w / 450.0) * 1.28;
+    let h_fork = win_h * 0.42;
+    let res_cx = cx - max(215.0, 195.0 * sx);
+    let res_cy = lip_center_y - h_fork * 0.76;
+    return vec2<f32>(res_cx, res_cy);
 }
 
 fn eval_all_sakura_blossoms(
@@ -1233,10 +1245,10 @@ fn eval_all_sakura_blossoms(
         res = eval_sakura_blossom_cluster(q, vec2<f32>(cx + half_w * 0.94, y_fork - h_crown * 0.29), 41.0, g_bloom, time, res);
     }
 
-    // 6. KUNTUM BUNGA SAKURA PEMBINGKAI SEARCH BAR (Hanya dievaluasi di sekitar kapsul)
+    // 6. KUNTUM BUNGA SAKURA PEMBINGKAI DAHAN KANAN (Search Bar Lampion) & DAHAN KIRI (Hasil Search)
     let lip_y_bl = y_fork + h_fork;
-    let pill_cx_bl = cx + max(205.0, 185.0 * sx);
-    let pill_cy_bl = lip_y_bl - h_fork * 0.28;
+    let pill_cx_bl = cx + max(215.0, 195.0 * sx);
+    let pill_cy_bl = lip_y_bl - h_fork * 0.44;
     let pill_bot_bl = pill_cy_bl + 28.0;
     if (abs(q.x - pill_cx_bl) < 360.0 && abs(q.y - pill_cy_bl) < 85.0) {
         // 70: Buket sakura mekar di ujung ranting kanan melengkung ke atas
@@ -1245,6 +1257,14 @@ fn eval_all_sakura_blossoms(
         res = eval_sakura_blossom_cluster(q, vec2<f32>(pill_cx_bl - 240.0, pill_bot_bl + 22.0), 71.0, g_bloom, time, res);
         // 72: Buket kecil aksen di bawah ujung kanan dahan penopang
         res = eval_sakura_blossom_cluster(q, vec2<f32>(pill_cx_bl + 258.0, pill_bot_bl + 20.0), 72.0, g_bloom, time, res);
+    }
+    let res_cx_bl = cx - max(215.0, 195.0 * sx);
+    let res_cy_bl = pill_cy_bl;
+    if (abs(q.x - res_cx_bl) < 360.0 && abs(q.y - res_cy_bl) < 85.0) {
+        // 73: Buket sakura di ujung ranting kiri melengkung ke atas
+        res = eval_sakura_blossom_cluster(q, vec2<f32>(res_cx_bl - 258.0, res_cy_bl - 18.0), 73.0, g_bloom, time, res);
+        // 74: Buket sakura di atas dahan kiri
+        res = eval_sakura_blossom_cluster(q, vec2<f32>(res_cx_bl + 160.0, res_cy_bl - 16.0), 74.0, g_bloom, time, res);
     }
 
     return res;
@@ -1362,11 +1382,12 @@ fn eval_sakura_tree_sdf_n(
     let q = get_sakura_tree_q(p, cx, half_w, lip_center_y, h_total, time);
 
     let h_crown = max(h_total - h_fork, 1.0);
-    // Staged Botanical Unfurl (Batang -> Primer -> Sekunder -> Ranting Filigree)
-    let g_trunk = smoothstep(0.00, 0.44, g_raw);
-    let g_prim  = smoothstep(0.24, 0.66, g_raw);
-    let g_sec   = smoothstep(0.46, 0.84, g_raw);
-    let g_twigs = smoothstep(0.62, 1.00, g_raw);
+    // Staged Botanical Unfurl (IN: Batang -> Primer -> Sekunder -> Ranting; OUT: Ranting -> Sekunder -> Primer -> Batang)
+    let is_opening = (u._pad0 > 0.5);
+    let g_trunk = select(smoothstep(0.00, 0.52, g_raw), smoothstep(0.00, 0.40, g_raw), is_opening);
+    let g_prim  = select(smoothstep(0.24, 0.72, g_raw), smoothstep(0.20, 0.62, g_raw), is_opening);
+    let g_sec   = select(smoothstep(0.46, 0.86, g_raw), smoothstep(0.42, 0.80, g_raw), is_opening);
+    let g_twigs = select(smoothstep(0.66, 0.98, g_raw), smoothstep(0.58, 0.96, g_raw), is_opening);
 
     let sx = (half_w / 450.0) * 1.28;
     let tg = thick;
@@ -1380,12 +1401,18 @@ fn eval_sakura_tree_sdf_n(
 
     var res = vec3<f32>(1e5, 0.0, 0.0);
 
-    // 1. BATANG UTAMA + FLARE NEBARI + DAHAN PENOPANG SEARCHBAR DI SISI KANAN
-    let pill_cx_tr = cx + max(205.0, 185.0 * sx);
-    let pill_cy_tr = lip_center_y - h_fork * 0.28;
-    let pill_bot_tr = pill_cy_tr + 28.0;
-    let max_shelf_x = max(cx + 380.0 * sx, pill_cx_tr + 315.0);
-    if (g_trunk > 0.005 && q.x > cx - 155.0 * sx && q.x < max_shelf_x && q.y > y_fork - 54.0) {
+    // 1. BATANG UTAMA + FLARE NEBARI + DAHAN PENOPANG KANAN (LAMPION BESAR) & KIRI (HASIL SEARCH LEBIH TINGGI)
+    let pill_cx_tr = cx + max(215.0, 195.0 * sx);
+    let pill_cy_tr = lip_center_y - h_fork * 0.44;
+    let pill_bot_tr = pill_cy_tr + 38.0;
+
+    let res_cx_tr = cx - max(215.0, 195.0 * sx);
+    let res_cy_tr = lip_center_y - h_fork * 0.76;
+    let res_bot_tr = res_cy_tr + 18.0;
+
+    let min_shelf_x = min(cx - 380.0 * sx, res_cx_tr - 315.0);
+    let max_shelf_x = max(cx + 380.0 * sx, pill_cx_tr + 345.0);
+    if (g_trunk > 0.005 && q.x > min_shelf_x && q.x < max_shelf_x && q.y > y_fork - 54.0) {
         let d_trunk = sd_curved_branch_g(q, p_base, p_fork, -14.0 * sx, 6.0 * sx, r_base, r_fork, g_trunk);
         var d_main = d_trunk;
         if (q.y > lip_center_y - h_fork * 0.46) {
@@ -1412,32 +1439,24 @@ fn eval_sakura_tree_sdf_n(
             d_main = smin_branch(d_trunk, d_flares, 12.0 * tg);
         }
 
-        // Dahan Penopang Search Bar (Shinboku Uro — Ceruk Kayu Alami Pembungkus Kapsul 500x56px)
-        let p_b_origin     = curved_branch_pt(p_base, p_fork, -14.0 * sx, 6.0 * sx, 0.22);
-        let p_brace_root   = curved_branch_pt(p_base, p_fork, -14.0 * sx, 6.0 * sx, 0.10);
-        // Ceruk kiri: Memeluk seluruh ujung hemispherical kiri kapsul dari bawah hingga ke bahu atas
-        let p_cradle_l_cup = vec2<f32>(pill_cx_tr - 250.0, pill_bot_tr - 2.0);
-        let p_cradle_l_rim = vec2<f32>(pill_cx_tr - 256.0, pill_cy_tr - 10.0);
-        // Ranjang kayu alas bawah: Tepat menyentuh & menyatu tanpa celah di sepanjang perut kapsul
+        // A. Dahan Penopang Search Bar di Sisi KANAN (Shinboku Uro Kanan — Lampion Besar 570x76px)
+        let p_b_origin     = curved_branch_pt(p_base, p_fork, -14.0 * sx, 6.0 * sx, 0.28);
+        let p_brace_root   = curved_branch_pt(p_base, p_fork, -14.0 * sx, 6.0 * sx, 0.12);
+        let p_cradle_l_cup = vec2<f32>(pill_cx_tr - 285.0, pill_bot_tr - 2.0);
+        let p_cradle_l_rim = vec2<f32>(pill_cx_tr - 292.0, pill_cy_tr - 14.0);
         let p_cradle_mid   = vec2<f32>(pill_cx_tr + 6.0,   pill_bot_tr - 2.0);
-        let p_cradle_r_cup = vec2<f32>(pill_cx_tr + 248.0, pill_bot_tr - 2.0);
-        // Ceruk kanan: Melengkung memeluk ujung hemispherical kanan dan meliuk anggun ke atas
-        let p_cradle_r_rim = vec2<f32>(pill_cx_tr + 258.0, pill_cy_tr - 8.0);
-        let p_shelf_tip    = vec2<f32>(pill_cx_tr + 298.0, pill_cy_tr - 22.0);
-        let p_brace_join   = vec2<f32>(pill_cx_tr - 95.0,  pill_bot_tr + 12.0);
-        let p_sprop_end    = vec2<f32>(pill_cx_tr + 258.0, pill_bot_tr + 20.0);
+        let p_cradle_r_cup = vec2<f32>(pill_cx_tr + 282.0, pill_bot_tr - 2.0);
+        let p_cradle_r_rim = vec2<f32>(pill_cx_tr + 294.0, pill_cy_tr - 12.0);
+        let p_shelf_tip    = vec2<f32>(pill_cx_tr + 338.0, pill_cy_tr - 26.0);
+        let p_brace_join   = vec2<f32>(pill_cx_tr - 110.0, pill_bot_tr + 14.0);
+        let p_sprop_end    = vec2<f32>(pill_cx_tr + 294.0, pill_bot_tr + 22.0);
 
-        // 1. Bahu bough utama keluar kokoh dari batang utama menuju ceruk kiri
-        let d_sh0 = sd_curved_branch_g(q, p_b_origin, p_cradle_l_cup, 8.5, 2.0, 14.5 * tg, 10.5 * tg, g_trunk);
-        // 2. Bibir ceruk kayu kiri yang memeluk lekukan luar rounded cap
-        let d_sh_lcup = sd_curved_branch_g(q, p_cradle_l_cup, p_cradle_l_rim, -5.0, -1.0, 10.5 * tg, 6.2 * tg, g_trunk);
-        // 3. Ranjang kayu horizontal kiri -> tengah -> kanan yang menyatu dengan alas bawah kapsul
-        let d_sh1 = sd_curved_branch_g(q, p_cradle_l_cup, p_cradle_mid, 1.2, 0.4, 10.5 * tg, 8.8 * tg, g_trunk);
-        let d_sh2 = sd_curved_branch_g(q, p_cradle_mid, p_cradle_r_cup, 1.2, -0.4, 8.8 * tg, 7.5 * tg, g_trunk);
-        // 4. Bibir ceruk kayu kanan yang memeluk lekukan rounded cap kanan
-        let d_sh_rcup = sd_curved_branch_g(q, p_cradle_r_cup, p_cradle_r_rim, 4.5, -1.0, 7.5 * tg, 5.0 * tg, g_trunk);
-        // 5. Penyangga kantilever bawah dari pangkal pohon
-        let d_sbrace = sd_curved_branch_g(q, p_brace_root, p_brace_join, -5.0, 1.0, 8.5 * tg, 4.5 * tg, g_trunk);
+        let d_sh0 = sd_curved_branch_g(q, p_b_origin, p_cradle_l_cup, 8.5, 2.0, 15.0 * tg, 11.0 * tg, g_trunk);
+        let d_sh_lcup = sd_curved_branch_g(q, p_cradle_l_cup, p_cradle_l_rim, -5.0, -1.0, 11.0 * tg, 6.5 * tg, g_trunk);
+        let d_sh1 = sd_curved_branch_g(q, p_cradle_l_cup, p_cradle_mid, 1.2, 0.4, 11.0 * tg, 9.2 * tg, g_trunk);
+        let d_sh2 = sd_curved_branch_g(q, p_cradle_mid, p_cradle_r_cup, 1.2, -0.4, 9.2 * tg, 8.0 * tg, g_trunk);
+        let d_sh_rcup = sd_curved_branch_g(q, p_cradle_r_cup, p_cradle_r_rim, 4.5, -1.0, 8.0 * tg, 5.2 * tg, g_trunk);
+        let d_sbrace = sd_curved_branch_g(q, p_brace_root, p_brace_join, -5.0, 1.0, 9.0 * tg, 4.8 * tg, g_trunk);
 
         var d_shelf = smin_branch(d_sh0, d_sh_lcup, 6.0 * tg);
         d_shelf = smin_branch(d_shelf, d_sh1, 6.5 * tg);
@@ -1446,14 +1465,39 @@ fn eval_sakura_tree_sdf_n(
         d_shelf = smin_branch(d_shelf, d_sbrace, 6.0 * tg);
 
         if (g_twigs > 0.005) {
-            // Ujung ranting bonsai melengkung anggun ke atas membingkai sisi kanan kapsul tempat klaster bunga 70
-            let d_stip  = sd_curved_branch_g(q, p_cradle_r_rim, p_shelf_tip, 9.5, -2.0, 5.0 * tg, 1.2 * tg, g_twigs);
-            // Ranting aksen kecil di bawah kanan untuk klaster sakura 72
-            let d_sprop = sd_curved_branch_g(q, p_cradle_r_cup, p_sprop_end, -3.5, 0.6, 2.8 * tg, 0.85 * tg, g_twigs);
+            let d_stip  = sd_curved_branch_g(q, p_cradle_r_rim, p_shelf_tip, 9.5, -2.0, 5.2 * tg, 1.3 * tg, g_twigs);
+            let d_sprop = sd_curved_branch_g(q, p_cradle_r_cup, p_sprop_end, -3.5, 0.6, 3.0 * tg, 0.9 * tg, g_twigs);
             d_shelf = smin_branch(d_shelf, smin_branch(d_stip, d_sprop, k_tw), 3.2 * tg);
         }
 
-        d_main = smin_branch(d_main, d_shelf, 9.0 * tg);
+        // B. DAHAN PENOPANG HASIL SEARCH DI SISI KIRI (Shinboku Uro Kiri — Batang Kiri Lebih Tinggi)
+        let p_lb_origin     = curved_branch_pt(p_base, p_fork, -14.0 * sx, 6.0 * sx, 0.58);
+        let p_lb_brace      = curved_branch_pt(p_base, p_fork, -14.0 * sx, 6.0 * sx, 0.32);
+        let p_lcradle_r_cup = vec2<f32>(res_cx_tr + 215.0, res_bot_tr);
+        let p_lcradle_mid   = vec2<f32>(res_cx_tr,         res_cy_tr - 8.0);
+        let p_lcradle_l_cup = vec2<f32>(res_cx_tr - 215.0, res_bot_tr);
+        let p_lcradle_l_rim = vec2<f32>(res_cx_tr - 228.0, res_cy_tr - 10.0);
+        let p_lshelf_tip    = vec2<f32>(res_cx_tr - 264.0, res_cy_tr - 24.0);
+        let p_lbrace_join   = vec2<f32>(res_cx_tr + 65.0,  res_bot_tr + 14.0);
+
+        let d_lsh0 = sd_curved_branch_g(q, p_lb_origin, p_lcradle_r_cup, -10.5, 3.0, 14.0 * tg, 9.8 * tg, g_trunk);
+        let d_lsh1 = sd_curved_branch_g(q, p_lcradle_r_cup, p_lcradle_mid, -2.0, 0.4, 9.8 * tg, 8.2 * tg, g_trunk);
+        let d_lsh2 = sd_curved_branch_g(q, p_lcradle_mid, p_lcradle_l_cup, -2.0, -0.4, 8.2 * tg, 6.8 * tg, g_trunk);
+        let d_lsh_lcup = sd_curved_branch_g(q, p_lcradle_l_cup, p_lcradle_l_rim, -5.0, -1.0, 6.8 * tg, 4.6 * tg, g_trunk);
+        let d_lsbrace = sd_curved_branch_g(q, p_lb_brace, p_lbrace_join, 7.0, 1.2, 8.0 * tg, 4.2 * tg, g_trunk);
+
+        var d_lshelf = smin_branch(d_lsh0, d_lsh1, 6.0 * tg);
+        d_lshelf = smin_branch(d_lshelf, d_lsh2, 5.5 * tg);
+        d_lshelf = smin_branch(d_lshelf, d_lsh_lcup, 5.0 * tg);
+        d_lshelf = smin_branch(d_lshelf, d_lsbrace, 5.5 * tg);
+
+        if (g_twigs > 0.005) {
+            let d_lstip = sd_curved_branch_g(q, p_lcradle_l_rim, p_lshelf_tip, -9.0, -2.0, 4.6 * tg, 1.1 * tg, g_twigs);
+            d_lshelf = smin_branch(d_lshelf, d_lstip, 3.0 * tg);
+        }
+
+        d_main = smin_branch(d_main, d_shelf, 8.5 * tg);
+        d_main = smin_branch(d_main, d_lshelf, 8.5 * tg);
         res = d_main;
     }
 
@@ -1663,7 +1707,18 @@ fn render_sakura_stump(
     let q = get_sakura_tree_q(p, cx, half_w, lip_center_y, h_total, time);
     let y_fork = lip_center_y - h_fork;
     let h_crown = max(h_total - h_fork, 1.0);
-    let b_res = eval_all_sakura_blossoms(q, cx, sx, half_w, y_fork, h_crown, h_fork, g, time);
+    var b_res: BlossomClusterResult;
+    b_res.d_back = 1e5;
+    b_res.inner_back = 1.0;
+    b_res.stage_back = 1.0;
+    b_res.rot_back = 0.0;
+    b_res.d_front = 1e5;
+    b_res.inner_front = 1.0;
+    b_res.stage_front = 1.0;
+    b_res.rot_front = 0.0;
+    if (g > 0.58 && u.tree_style.w > 0.005 && q.y < (lip_center_y - 12.0)) {
+        b_res = eval_all_sakura_blossoms(q, cx, sx, half_w, y_fork, h_crown, h_fork, g, time);
+    }
 
     let gold_warm  = hex(235.0, 178.0, 76.0);
     let gold_core  = hex(255.0, 242.0, 198.0);
@@ -1879,7 +1934,135 @@ fn render_sakura_stump(
     return vec4<f32>(col, alpha);
 }
 
-/// Render Zen Search Pill (Luxury Kintsugi & Urushi Lacquer Glass Floating Search Bar)
+// ─────────────────────────────────────────────────────────────────────────────
+// 5 TANZAKU RESULT TAGS DI DAHAN KIRI (Slip Gantungan Hasil Pencarian)
+// ─────────────────────────────────────────────────────────────────────────────
+fn render_tanzaku_tags(
+    p: vec2<f32>,
+    res_center: vec2<f32>,
+    results_t: f32,
+    sel_idx: f32,
+    time: f32,
+    mouse_pos: vec2<f32>,
+    in_col: vec3<f32>,
+    in_a: f32,
+) -> vec4<f32> {
+    if (results_t <= 0.005) {
+        return vec4<f32>(in_col, in_a);
+    }
+
+    var col = in_col;
+    var alpha = in_a;
+    let aa = 0.85;
+
+    let tag_hw = 220.0;
+    let tag_hh = 21.0;
+    let tag_r  = 7.0;
+
+    // 1. TALI GANTUNGAN SUTRA DARI DAHAN KIRI SAKURA
+    let cord_x_left  = res_center.x - 198.0;
+    let cord_x_right = res_center.x + 198.0;
+    let cord_top_y   = res_center.y - 8.0;
+    let cord_bot_y   = res_center.y + 18.0 + 4.0 * 50.0 + 21.0;
+
+    let in_cord_strip = (abs(p.x - cord_x_left) < 3.0 || abs(p.x - cord_x_right) < 3.0)
+                     && (p.y >= cord_top_y && p.y <= cord_bot_y);
+    if (in_cord_strip) {
+        let d_cord_l = abs(p.x - cord_x_left) - 0.75;
+        let d_cord_r = abs(p.x - cord_x_right) - 0.75;
+        let d_cords = min(d_cord_l, d_cord_r);
+        if (d_cords <= 1.0) {
+            let cord_m = (1.0 - smoothstep(-aa, aa, d_cords)) * results_t * 0.65;
+            let cord_c = hex(215.0, 180.0, 115.0);
+            col = mix(col, cord_c, cord_m);
+            alpha = max(alpha, cord_m);
+        }
+    }
+
+    // 2. 5 TANZAKU RESULT TAGS DI DAHAN KIRI
+    for (var i = 0u; i < 5u; i = i + 1u) {
+        let fi = f32(i);
+        let cascade_raw = clamp((results_t - fi * 0.065) / 0.74, 0.0, 1.0);
+        let cascade = cascade_raw * cascade_raw * (3.0 - 2.0 * cascade_raw);
+        if (cascade <= 0.005) {
+            continue;
+        }
+
+        let tag_cy = res_center.y + 18.0 + fi * 50.0 + 21.0;
+        let drop_offset = (1.0 - cascade) * 16.0;
+        let eff_cy = tag_cy + drop_offset;
+
+        // Ayunan pendulum lembut khas kertas gantung
+        let tag_sway = sin(time * 2.1 + fi * 0.72) * (1.1 * cascade);
+        let tag_center = vec2<f32>(res_center.x + tag_sway, eff_cy);
+
+        let d_tag = sd_rounded_box(p - tag_center, vec2<f32>(tag_hw, tag_hh), tag_r);
+        if (d_tag > 14.0) {
+            continue;
+        }
+
+        let is_selected = (abs(sel_idx - fi) < 0.45);
+        let d_mouse_tag = sd_rounded_box(mouse_pos - tag_center, vec2<f32>(tag_hw, tag_hh), tag_r);
+        let is_tag_hover = (1.0 - smoothstep(-2.0, 8.0, d_mouse_tag)) * cascade;
+
+        let active_state = clamp(select(0.0, 1.0, is_selected) + is_tag_hover * 0.65, 0.0, 1.0);
+
+        // Ambient contact shadow / soft backlight
+        let d_shad = max(d_tag, 0.0);
+        let shad_m = exp(-d_shad * 0.22) * (0.28 + active_state * 0.25) * cascade;
+        if (shad_m > 0.005) {
+            let shad_col = mix(hex(10.0, 10.0, 14.0), hex(242.0, 192.0, 110.0), active_state * 0.42);
+            col = mix(col, shad_col, shad_m * 0.65);
+            alpha = max(alpha, shad_m * 0.55);
+        }
+
+        if (d_tag <= 1.0) {
+            let fill_m = (1.0 - smoothstep(-aa, aa, d_tag)) * cascade;
+            let q_tag = (p - tag_center) / vec2<f32>(tag_hw, tag_hh);
+
+            // Warna dasar: Kaca Urushi pekat dan opak anti tembus pandang teks terminal
+            var base_glass = mix(hex(10.0, 11.0, 16.0), hex(18.0, 19.0, 28.0), smoothstep(-1.0, 1.0, q_tag.y));
+            if (active_state > 0.01) {
+                let warm_tint = mix(hex(25.0, 28.0, 42.0), hex(36.0, 38.0, 56.0), smoothstep(-1.0, 1.0, q_tag.y));
+                base_glass = mix(base_glass, warm_tint, active_state);
+            }
+
+            // Kilatan kursor di atas slip gantungan
+            let cur_rel = length((p - mouse_pos) * vec2<f32>(0.65, 1.0));
+            let cur_glow = exp(-(cur_rel * cur_rel) / 4800.0) * is_tag_hover;
+            base_glass = base_glass + hex(240.0, 198.0, 115.0) * (cur_glow * 0.095);
+
+            // Garis aksen emas vertikal di sisi kiri (Kinpun accent bar)
+            let left_accent_x = tag_center.x - tag_hw + 3.0;
+            let d_accent_bar = abs(p.x - left_accent_x) - 1.25;
+            if (d_accent_bar <= 1.0) {
+                let bar_m = 1.0 - smoothstep(-aa, aa, d_accent_bar);
+                let bar_col = mix(hex(210.0, 175.0, 112.0), hex(255.0, 228.0, 150.0), active_state);
+                base_glass = mix(base_glass, bar_col, bar_m * (0.65 + active_state * 0.35));
+            }
+
+            // Best Match (Item 0): Sentuhan emas Kintsugi halus di sudut kanan
+            if (i == 0u) {
+                let bm_glow = exp(-abs(p.x - (tag_center.x + tag_hw - 42.0)) / 36.0) * 0.12 * cascade;
+                base_glass = base_glass + hex(245.0, 205.0, 120.0) * bm_glow;
+            }
+
+            // Hairline Border Kintsugi emas
+            let border_w = 1.05;
+            let border_m = smoothstep(-aa, 0.0, d_tag + border_w) * (1.0 - smoothstep(0.0, aa, d_tag));
+            let gold_border = mix(hex(145.0, 122.0, 84.0), hex(248.0, 215.0, 142.0), active_state);
+            base_glass = mix(base_glass, gold_border, border_m * (0.55 + active_state * 0.45));
+
+            let final_tag_a = (0.98 + active_state * 0.015) * fill_m;
+            col = mix(col, base_glass, final_tag_a);
+            alpha = max(alpha, final_tag_a);
+        }
+    }
+
+    return vec4<f32>(col, alpha);
+}
+
+/// Render Zen Search Pill & Hasil Search (Dahan Kanan: Searchbar Lampion, Dahan Kiri: Hasil Search Tanzaku)
 fn render_zen_search_pill(
     p: vec2<f32>,
     cx: f32,
@@ -1898,77 +2081,168 @@ fn render_zen_search_pill(
     }
 
     let lip_center_y = get_taskbar_lip_y(cx, cx, half_w, bottom_y, smooth_t, overshoot);
-    let t_sc = smoothstep(0.0, 1.0, clamp(search_t, 0.0, 1.0));
+    let is_opening = (u._pad0 > 0.5);
+    let t_lin = clamp(search_t, 0.0, 1.0);
+    let t_sc = smoothstep(0.0, 1.0, t_lin);
+    let over_t = max(search_t - 1.0, 0.0);
+
+    // Mekar organik (IN) & surut halus (OUT)
+    let expand_x = select(pow(t_sc, 0.85), smoothstep(0.0, 0.92, t_lin), is_opening) + over_t * 0.16;
+    let expand_y = smoothstep(0.0, 0.68, t_lin) + over_t * 0.12;
     let rise = (1.0 - t_sc) * 14.0;
 
-    // Posisi persis bertumpu di atas dahan penopang kanan (1:1 dengan Rust & cabang kayu)
+    // Dahan KANAN: Tempat Search Bar (bergaya Lampion)
     let pill_rest = get_search_pill_rest_center(cx, half_w, lip_center_y, u.screen_size.y);
-    let pill_center = pill_rest + vec2<f32>(0.0, rise);
+    let anchor_shift_x = -(1.0 - clamp(expand_x, 0.0, 1.0)) * 96.0;
+    let pill_center = pill_rest + vec2<f32>(anchor_shift_x, rise);
 
-    let pill_hw = 250.0 * t_sc; // total lebar 500px
-    let pill_hh = 28.0 * t_sc;  // total tinggi 56px
-    let pill_r  = 28.0 * t_sc;  // pill membulat anggun
+    // Dahan KIRI: Tempat Hasil Search (Tanzaku Tags)
+    let res_rest = get_search_results_rest_center(cx, half_w, lip_center_y, u.screen_size.y);
+    let res_center = res_rest + vec2<f32>(-anchor_shift_x, rise);
 
-    let d_box = sd_rounded_box(p - pill_center, vec2<f32>(pill_hw, pill_hh), pill_r);
+    let full_hw = 285.0;
+    let full_hh = 38.0;
+    let pill_hw = max(38.0, full_hw * clamp(expand_x, 0.0, 1.04));
+    let pill_hh = max(18.0, full_hh * clamp(expand_y, 0.0, 1.03));
+
+    let results_t = clamp(u.clock_time.w, 0.0, 1.0);
+
+    // Bounding Box Partisi Spasial Ekstrem (Kanan: Search Bar Lampion Besar, Kiri: Hasil Search)
+    let in_right_bar = (abs(p.x - pill_center.x) <= (pill_hw + 36.0)) && (abs(p.y - pill_center.y) <= (pill_hh + 36.0));
+    let in_left_results = (results_t > 0.005)
+        && (abs(p.x - res_center.x) <= 245.0)
+        && (p.y >= (res_center.y - 14.0) && p.y <= (res_center.y + 285.0 * results_t));
+
+    if (!in_right_bar && !in_left_results) {
+        return vec4<f32>(in_col, in_a);
+    }
 
     var col = in_col;
     var alpha = in_a;
 
-    // 1. SOFT TRANQUIL AMBIENT DEPTH (Bayangan ceruk kayu alami & kontak hangat)
-    let shadow_dist = max(d_box, 0.0);
-    let shadow_glow = exp(-shadow_dist * 0.15) * 0.26 * t_sc;
-    if (shadow_glow > 0.005) {
-        col = mix(col, hex(18.0, 14.0, 16.0), shadow_glow * 0.55);
-        alpha = max(alpha, shadow_glow * 0.45);
+    // 1. HASIL SEARCH DI DAHAN KIRI (5 Tanzaku Tags menggantung di dahan kiri baru)
+    if (in_left_results) {
+        let tags_res = render_tanzaku_tags(p, res_center, results_t, u.font_scales.z, time, mouse_pos, col, alpha);
+        col = tags_res.rgb;
+        alpha = tags_res.a;
     }
 
-    // 2. TINTED URUSHI & SUMI INK GLASS (Pernis Urushi Hitam Tertanam Alami)
-    if (d_box <= 1.0) {
-        let aa = 1.0;
-        let fill_mask = 1.0 - smoothstep(-aa, aa, d_box);
+    // 2. SEARCH BAR BENTUK LAMPION BESAR DI DAHAN KANAN
+    if (in_right_bar) {
+        let pill_r  = min(pill_hw, pill_hh);
+        let d_box = sd_rounded_box(p - pill_center, vec2<f32>(pill_hw, pill_hh), pill_r);
 
-        // Kaca tinta pernis Urushi obsidian pekat yang tenang
-        let q_norm = (p - pill_center) / vec2<f32>(max(pill_hw, 1.0), max(pill_hh, 1.0));
-        var sumi_glass = mix(hex(12.0, 13.0, 18.0), hex(18.0, 20.0, 28.0), q_norm.y * 0.5 + 0.5);
+        // Ambient contact shadow / warm glow di ceruk dahan kanan
+        let shadow_dist = max(d_box, 0.0);
+        let shadow_glow = exp(-shadow_dist * 0.12) * 0.38 * t_sc;
+        if (shadow_glow > 0.004) {
+            let cradle_shadow = mix(hex(12.0, 10.0, 14.0), hex(24.0, 18.0, 14.0), smoothstep(-8.0, 32.0, p.y - pill_center.y));
+            col = mix(col, cradle_shadow, shadow_glow * 0.65);
+            alpha = max(alpha, shadow_glow * 0.52);
+        }
 
-        // Kilau sangat tipis & halus di bagian atas (subtle soft sheen)
-        let top_rim = smoothstep(-pill_hh * 0.95, -pill_hh * 0.4, p.y - pill_center.y) * 
-                      (1.0 - smoothstep(-pill_hh * 0.4, 0.0, p.y - pill_center.y));
-        sumi_glass += hex(230.0, 235.0, 245.0) * (top_rim * 0.05);
-
-        // 3. IKON ZEN ENSŌ MINIMALIS (Garis halus emas doff redup)
-        let icon_cx = pill_center.x - pill_hw + 32.0;
-        let icon_cy = pill_center.y;
-        let p_icon = p - vec2<f32>(icon_cx, icon_cy);
-        let r_enso = 8.2;
-        let d_enso_ring = abs(length(p_icon) - r_enso) - 1.15;
-        let d_handle = sd_seg(p_icon, vec2<f32>(5.5, 5.5), vec2<f32>(11.5, 11.5)) - 1.15;
-        let d_lens = min(d_enso_ring, d_handle);
-
-        let icon_color = hex(185.0, 165.0, 130.0);
-        let icon_mask = 1.0 - smoothstep(-aa, aa, d_lens);
-        sumi_glass = mix(sumi_glass, icon_color, icon_mask * 0.75);
-
-        // 4. KONTAK CAHAYA & PANTULAN CERUK KAYU (Menyatukan kaca dengan kayu penopang)
-        let bot_contact = smoothstep(-0.15, 0.95, q_norm.y) * (1.0 - abs(q_norm.x) * 0.20);
-        let gold_radiance = hex(235.0, 180.0, 78.0) * (bot_contact * 0.18);
-        let wood_reflection = hex(92.0, 68.0, 52.0) * (bot_contact * 0.22);
-        sumi_glass += gold_radiance + wood_reflection;
-
-        // 5. BORDERLINE KINTSUGI ORGANIK (Menyatu mulus di alas kayu bawah)
+        let typing_energy = clamp(u.font_scales.w, 0.0, 1.0);
         let d_mouse = sd_rounded_box(mouse_pos - pill_center, vec2<f32>(pill_hw, pill_hh), pill_r);
-        let is_hover = 1.0 - smoothstep(-2.0, 6.0, d_mouse);
-        let border_w = 1.15;
-        let border_mask = smoothstep(-aa, 0.0, d_box + border_w) * (1.0 - smoothstep(0.0, aa, d_box));
-        let gold_rim = mix(hex(185.0, 158.0, 105.0), hex(245.0, 212.0, 138.0), is_hover * 0.65);
-        let is_bottom_bed = smoothstep(0.10, 0.80, q_norm.y);
-        let wood_melt_col = mix(gold_rim, hex(105.0, 74.0, 52.0), is_bottom_bed * 0.85);
-        let border_col_eff = mix(gold_rim, wood_melt_col, is_bottom_bed);
-        sumi_glass = mix(sumi_glass, border_col_eff, border_mask * (0.60 + is_hover * 0.30));
+        let is_hover = 1.0 - smoothstep(-2.0, 10.0, d_mouse);
 
-        let pill_alpha = 0.90 * fill_mask * t_sc;
-        col = mix(col, sumi_glass, pill_alpha);
-        alpha = max(alpha, pill_alpha);
+        if (d_box <= 1.2) {
+            let aa = 1.0;
+            let fill_mask = 1.0 - smoothstep(-aa, aa, d_box);
+
+            let q_norm = (p - pill_center) / vec2<f32>(max(pill_hw, 1.0), max(pill_hh, 1.0));
+            let radial_d = length(q_norm * vec2<f32>(0.55, 1.0));
+
+            // A. BADAN LAMPION KERTAS WASHI TEBAL & OPAK (Anti tembus pandang teks terminal/background)
+            // Latar belakang hitam Urushi pekat untuk keterbacaan teks maksimal
+            var lantern_glass = mix(hex(12.0, 11.0, 16.0), hex(20.0, 18.0, 26.0), smoothstep(-0.9, 0.9, q_norm.y));
+            let warm_inner = mix(hex(255.0, 238.0, 180.0), hex(240.0, 160.0, 70.0), clamp(radial_d * 0.78, 0.0, 1.0));
+            let flame_breath = 0.92 + 0.08 * sin(time * 3.4 + q_norm.x * 2.0);
+            lantern_glass += warm_inner * (0.055 + is_hover * 0.04 + typing_energy * 0.09) * flame_breath;
+
+            // B. RUSUK CINCIN BAMBU HORIZONTAL (Higo Rings khas Lampion)
+            let higo_rings = smoothstep(0.74, 0.98, abs(cos((p.x - pill_center.x) * 0.18)));
+            lantern_glass = mix(lantern_glass, hex(14.0, 12.0, 18.0), higo_rings * 0.18);
+
+            // C. TUTUP KAYU URUSHI BERTEPI EMAS DI KIRI & KANAN (End Caps silinder lampion)
+            let is_left_cap  = smoothstep(pill_hw - 32.0, pill_hw - 12.0, -(p.x - pill_center.x));
+            let is_right_cap = smoothstep(pill_hw - 32.0, pill_hw - 12.0,  (p.x - pill_center.x));
+            let is_caps = max(is_left_cap, is_right_cap);
+            if (is_caps > 0.01) {
+                let cap_wood = mix(hex(22.0, 18.0, 20.0), hex(36.0, 28.0, 28.0), smoothstep(-0.8, 0.8, q_norm.y));
+                lantern_glass = mix(lantern_glass, cap_wood, is_caps * 0.65);
+            }
+
+            // D. KILAU CAHAYA KURSOR & KINTSUGI SWEEP
+            let cursor_rel = length((p - mouse_pos) * vec2<f32>(0.55, 1.0));
+            let cursor_pool = exp(-(cursor_rel * cursor_rel) / 7200.0) * is_hover;
+            lantern_glass += hex(248.0, 205.0, 120.0) * (cursor_pool * 0.11);
+
+            let sweep_prog = smoothstep(0.35, 0.98, t_lin);
+            let sweep_x = mix(-pill_hw - 60.0, pill_hw + 60.0, sweep_prog);
+            let sweep_band = exp(-pow((p.x - pill_center.x - sweep_x + (p.y - pill_center.y) * 0.6) / 38.0, 2.0));
+            let sweep_fade = sin(sweep_prog * 3.14159265);
+            lantern_glass += hex(255.0, 228.0, 155.0) * (sweep_band * sweep_fade * 0.18);
+
+            // E. IKON ZEN ENSŌ CALLIGRAPHIC & DIVIDER (Ukuran proporsional lampion besar)
+            let icon_reveal = smoothstep(0.28, 0.78, t_lin);
+            if (icon_reveal > 0.01) {
+                let icon_cx = pill_center.x - pill_hw + 38.0;
+                let icon_cy = pill_center.y;
+                let p_icon = p - vec2<f32>(icon_cx, icon_cy);
+                let ang_icon = atan2(p_icon.y, p_icon.x);
+                let brush_var = 1.15 + 0.36 * sin(ang_icon - 0.8);
+                let r_enso = 9.8;
+                let d_enso_ring = abs(length(p_icon) - r_enso) - brush_var;
+                let d_handle = sd_seg(p_icon, vec2<f32>(6.8, 6.8), vec2<f32>(14.0, 14.0)) - 1.35;
+                let d_lens = min(d_enso_ring, d_handle);
+
+                let icon_glow = exp(-max(d_lens, 0.0) * 0.42) * (0.16 + is_hover * 0.16 + typing_energy * 0.24);
+                let icon_color = mix(hex(205.0, 178.0, 128.0), hex(255.0, 222.0, 148.0), clamp(is_hover * 0.55 + typing_energy * 0.70, 0.0, 1.0));
+                let icon_mask = (1.0 - smoothstep(-aa, aa, d_lens)) * icon_reveal;
+                lantern_glass = mix(lantern_glass, icon_color, icon_mask * 0.88);
+                lantern_glass += icon_color * (icon_glow * icon_reveal);
+
+                let div_x = pill_center.x - pill_hw + 68.0;
+                let d_div = abs(p.x - div_x);
+                let div_v_fade = 1.0 - smoothstep(10.0, 22.0, abs(p.y - pill_center.y));
+                let div_mask = (1.0 - smoothstep(0.0, 1.0, d_div)) * div_v_fade * icon_reveal;
+                lantern_glass = mix(lantern_glass, hex(205.0, 175.0, 120.0), div_mask * (0.28 + typing_energy * 0.25));
+
+                let badge_center = vec2<f32>(pill_center.x + pill_hw - 42.0, pill_center.y);
+                let d_badge = sd_rounded_box(p - badge_center, vec2<f32>(27.0, 14.5), 7.0);
+                if (d_badge <= 1.0) {
+                    let badge_fill = 1.0 - smoothstep(-0.7, 0.7, d_badge);
+                    let badge_rim = smoothstep(-0.9, 0.0, d_badge + 0.85) * (1.0 - smoothstep(0.0, 0.8, d_badge));
+                    lantern_glass = mix(lantern_glass, hex(28.0, 30.0, 40.0), badge_fill * 0.48 * icon_reveal);
+                    lantern_glass = mix(lantern_glass, hex(198.0, 170.0, 118.0), badge_rim * 0.34 * icon_reveal);
+                }
+            }
+
+            // F. KONTAK CAHAYA & PANTULAN DAHAN KAYU KANAN
+            let bot_contact = smoothstep(-0.10, 0.96, q_norm.y) * (1.0 - abs(q_norm.x) * 0.16);
+            let gold_radiance = hex(242.0, 188.0, 85.0) * (bot_contact * (0.16 + typing_energy * 0.14));
+            let wood_reflection = hex(98.0, 72.0, 54.0) * (bot_contact * 0.26);
+            lantern_glass += gold_radiance + wood_reflection;
+
+            // G. BORDERLINE GANDA KINTSUGI EMAS
+            let border_w = 1.15;
+            let border_mask = smoothstep(-aa, 0.0, d_box + border_w) * (1.0 - smoothstep(0.0, aa, d_box));
+            let inner_chamfer_d = abs(d_box + 2.4) - 0.45;
+            let inner_chamfer_mask = (1.0 - smoothstep(-0.6, 0.6, inner_chamfer_d)) * (1.0 - smoothstep(0.0, 0.65, q_norm.y));
+
+            let rim_energy = clamp(is_hover * 0.55 + typing_energy * 0.75, 0.0, 1.0);
+            let gold_rim = mix(hex(195.0, 165.0, 112.0), hex(255.0, 222.0, 145.0), rim_energy);
+            let is_bottom_bed = smoothstep(0.14, 0.84, q_norm.y);
+            let wood_melt_col = mix(gold_rim, hex(108.0, 76.0, 54.0), is_bottom_bed * 0.80);
+            let border_col_eff = mix(gold_rim, wood_melt_col, is_bottom_bed);
+
+            lantern_glass = mix(lantern_glass, hex(238.0, 220.0, 180.0), inner_chamfer_mask * (0.14 + rim_energy * 0.14));
+            lantern_glass = mix(lantern_glass, border_col_eff, border_mask * (0.68 + rim_energy * 0.28));
+
+            let pill_alpha = 0.985 * fill_mask * smoothstep(0.0, 0.22, t_lin);
+            col = mix(col, lantern_glass, pill_alpha);
+            alpha = max(alpha, pill_alpha);
+        }
     }
 
     return vec4<f32>(col, alpha);

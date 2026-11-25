@@ -138,6 +138,7 @@ impl ApplicationHandler for App {
             screen_w as i32,
             self.window_h as i32,
             None,
+            false,
             None,
             None,
         );
@@ -150,7 +151,10 @@ impl ApplicationHandler for App {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                platform::win_utils::cleanup_hooks();
+                event_loop.exit();
+            }
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -188,7 +192,7 @@ impl ApplicationHandler for App {
                     return;
                 }
 
-                // Input Keyboard untuk Zen Search Pill (Start Menu aktif)
+                // Input Keyboard untuk Zen Search Pill & Tanzaku Tags (Start Menu aktif)
                 if self.flyout_mgr.start.is_active() && self.flyout_mgr.start.open {
                     match physical_key {
                         PhysicalKey::Code(KeyCode::Escape) => {
@@ -205,7 +209,19 @@ impl ApplicationHandler for App {
                         }
                         PhysicalKey::Code(KeyCode::Enter)
                         | PhysicalKey::Code(KeyCode::NumpadEnter) => {
-                            // Reserved untuk eksekusi hasil pencarian (Tahap 2)
+                            self.flyout_mgr.start.execute_selected();
+                            return;
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowDown) => {
+                            self.flyout_mgr.start.select_next();
+                            return;
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowUp) => {
+                            self.flyout_mgr.start.select_prev();
+                            return;
+                        }
+                        PhysicalKey::Code(KeyCode::Tab) => {
+                            self.flyout_mgr.start.select_next();
                             return;
                         }
                         _ => {
@@ -228,8 +244,8 @@ impl ApplicationHandler for App {
                         } else if self.flyout_mgr.slot1_open {
                             self.flyout_mgr.close_slot1();
                         } else if self.flyout_mgr.start.is_active() {
-                    self.flyout_mgr.start.close();
-                } else if self.flyout_mgr.is_open() {
+                            self.flyout_mgr.start.close();
+                        } else if self.flyout_mgr.is_open() {
                             self.flyout_mgr.close();
                         } else if !self.is_exiting {
                             self.is_exiting = true;
@@ -296,6 +312,50 @@ impl ApplicationHandler for App {
                     if !self.flyout_mgr.handle_click(dx, dy) {
                         self.flyout_mgr.close();
                     }
+                } else if self.flyout_mgr.start.is_active() && self.flyout_mgr.start.open {
+                    let (pill_cx, pill_cy) = layout::search_pill_center_local(
+                        self.screen_w,
+                        self.window_h,
+                        self.flyout_mgr.start.search_pill_t,
+                    );
+                    let (res_cx, res_cy) = layout::search_results_center_local(
+                        self.screen_w,
+                        self.window_h,
+                        self.flyout_mgr.start.results_reveal_t,
+                    );
+                    // Cek klik pada salah satu dari 5 slip Tanzaku di dahan KIRI
+                    if self.flyout_mgr.start.results_reveal_t > 0.05 {
+                        let tag_hw = 220.0;
+                        let tag_hh = 21.0;
+                        for i in 0..self.flyout_mgr.start.search_results.len().min(5) {
+                            let tag_cy = res_cy + 18.0 + (i as f32) * 50.0 + 21.0;
+                            if (local_x - res_cx).abs() <= tag_hw && (local_y - tag_cy).abs() <= tag_hh {
+                                self.flyout_mgr.start.execute_index(i);
+                                return;
+                            }
+                        }
+                    }
+
+                    // Cek klik pada Search Pill Lampion Besar itu sendiri di dahan KANAN (570x76 px)
+                    if (local_x - pill_cx).abs() <= 285.0 && (local_y - pill_cy).abs() <= 38.0 {
+                        let esc_x = pill_cx + 242.0;
+                        if (local_x - esc_x).abs() <= 32.0 {
+                            self.flyout_mgr.start.clear_search();
+                        }
+                        return;
+                    }
+
+                    // Cek klik pada Chōchin Lantern di kiri
+                    let lantern_cx = pill_cx - 305.0;
+                    let lantern_cy = pill_cy + 18.0;
+                    if (local_x - lantern_cx).abs() <= 28.0 && (local_y - lantern_cy).abs() <= 32.0 {
+                        // Mengetuk lampion memberikan denyut cahaya emas hangat
+                        self.flyout_mgr.start.typing_pulse = 1.0;
+                        return;
+                    }
+
+                    // Klik di luar area interaktif menutup Start Menu
+                    self.flyout_mgr.start.close();
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -349,6 +409,7 @@ impl ApplicationHandler for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.is_exiting && self.current_anim <= 0.01 && self.anim_velocity.abs() < 0.05 {
+            platform::win_utils::cleanup_hooks();
             event_loop.exit();
             return;
         }
@@ -460,7 +521,7 @@ impl ApplicationHandler for App {
             self.flyout_mgr.close();
         }
 
-        let (flyout_zone, sub1_zone, sub2_zone) = layout::compute_hit_zones(
+        let hit_zones = layout::compute_hit_zones(
             self.screen_w,
             self.screen_h,
             self.window_h,
@@ -478,10 +539,40 @@ impl ApplicationHandler for App {
             window_top_screen,
             self.screen_w as i32,
             self.window_h as i32,
-            flyout_zone,
-            sub1_zone,
-            sub2_zone,
+            hit_zones.flyout,
+            hit_zones.flyout_has_stalk,
+            hit_zones.sub1,
+            hit_zones.sub2,
         );
+
+        // Deteksi hover mouse untuk 5 slip Tanzaku Start Menu di dahan KIRI
+        if self.flyout_mgr.start.is_active() && self.flyout_mgr.start.open && self.flyout_mgr.start.results_reveal_t > 0.10 {
+            let (res_cx, res_cy) = layout::search_results_center_local(
+                self.screen_w,
+                self.window_h,
+                self.flyout_mgr.start.results_reveal_t,
+            );
+            let local_mx = mouse_x as f32;
+            let local_my = mouse_y as f32 - window_top_screen as f32;
+            let tag_hw = 220.0;
+            let tag_hh = 21.0;
+            let mut hovered = None;
+            for i in 0..self.flyout_mgr.start.search_results.len().min(5) {
+                let tag_cy = res_cy + 18.0 + (i as f32) * 50.0 + 21.0;
+                if (local_mx - res_cx).abs() <= tag_hw && (local_my - tag_cy).abs() <= tag_hh {
+                    hovered = Some(i);
+                    break;
+                }
+            }
+            if let Some(h_idx) = hovered {
+                if self.flyout_mgr.start.hovered_result_idx != Some(h_idx) {
+                    self.flyout_mgr.start.hovered_result_idx = Some(h_idx);
+                    self.flyout_mgr.start.selected_result_idx = h_idx;
+                }
+            } else {
+                self.flyout_mgr.start.hovered_result_idx = None;
+            }
+        }
 
         // Push uniforms & Space Grotesk text entries to GPU
         if let Some(renderer) = self.renderer.as_mut() {
@@ -491,7 +582,12 @@ impl ApplicationHandler for App {
             }
             let local_mouse = [mouse_x as f32, mouse_y as f32 - window_top_screen as f32];
             let now_local = chrono::Local::now();
-            let clock_time = [now_local.hour() as f32, now_local.minute() as f32, now_local.second() as f32, 0.0];
+            let clock_time = [
+                now_local.hour() as f32,
+                now_local.minute() as f32,
+                now_local.second() as f32,
+                self.flyout_mgr.start.results_reveal_t,
+            ];
             let wy = layout::widget_y(self.window_h);
 
             let flyout_value = match self.flyout_mgr.active {
@@ -512,11 +608,17 @@ impl ApplicationHandler for App {
                     self.window_h,
                     self.flyout_mgr.start.search_pill_t,
                 );
-                self.flyout_mgr.start.build_search_text_entries(pill_cx, pill_cy, elapsed)
+                let (res_cx, res_cy) = layout::search_results_center_local(
+                    self.screen_w,
+                    self.window_h,
+                    self.flyout_mgr.start.results_reveal_t,
+                );
+                self.flyout_mgr.start.build_search_text_entries(pill_cx, pill_cy, res_cx, res_cy, elapsed)
             } else {
                 Vec::new()
             };
 
+            renderer.uniforms._padding0 = if self.flyout_mgr.start.open { 1.0 } else { 0.0 };
             renderer.update_animation(
                 self.current_anim,
                 wave_surge,
@@ -529,7 +631,7 @@ impl ApplicationHandler for App {
                 [flyout_center_x, wy, if self.flyout_mgr.battery_info.is_charging { 1.0 } else { 0.0 }, self.flyout_mgr.battery_info.percent],
                 [self.flyout_mgr.packed_flags(), self.flyout_mgr.power_mode.as_f32(), self.flyout_mgr.sound_output.as_f32(), self.flyout_mgr.brightness_level],
                 [(self.flyout_mgr.battery_info.life_time_secs / 60) as f32, self.flyout_mgr.wifi_signal, self.flyout_mgr.volume_level, self.flyout_mgr.slot1_open_t],
-                [disp_scale, body_scale, 1.0, 0.0],
+                [disp_scale, body_scale, self.flyout_mgr.start.selected_result_idx as f32, self.flyout_mgr.start.search_energy()],
                 [self.flyout_mgr.config.visual.texture_intensity, self.flyout_mgr.config.visual.texture_fade_px, sub1_off_x, self.flyout_mgr.config.visual.content_backdrop_alpha],
                 [self.flyout_mgr.slot1_kind as u32 as f32, self.flyout_mgr.slot2_kind as u32 as f32, self.flyout_mgr.slot2_open_t, self.flyout_mgr.wifi_toggle_t],
                 [sub1_off_x, sub2_off_x, if slot2_parent_is_main { 1.0 } else { 0.0 }, self.flyout_mgr.spatial_toggle_t],
@@ -558,6 +660,7 @@ impl ApplicationHandler for App {
                 self.diagnose_step = 2;
             } else if self.diagnose_step == 2 && self.flyout_mgr.slot2_open_t >= 0.98 {
                 println!(">>> [DIAG] Battery Chain OK: Slot1={:?}, Slot2={:?}", self.flyout_mgr.slot1_kind, self.flyout_mgr.slot2_kind);
+                platform::win_utils::cleanup_hooks();
                 event_loop.exit();
             }
         }

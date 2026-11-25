@@ -454,11 +454,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // ─────────────────────────────────────────────────────────────────────────
     let is_start_active = (u.start_info.y > 0.005 || u.tree_style.x > 0.005 || u.start_fx.w > 0.005);
     let is_flyout_active = (u.flyout_info.y > 0.005);
-    let is_wave_active = (u.anim_t > 0.005);
 
     var in_active_zone = false;
     // 1. Taskbar Wave Zone (bawah layar + margin ombak)
-    if (is_wave_active && p.y > (bottom_y - 150.0) && abs(p.x - cx) < (half_w + 80.0)) {
+    // Mempertahankan bibir ombak/peeking crest saat autohide (anim_t = 0.0) agar tidak hilang
+    let wave_reach_y = bottom_y - mix(34.0, 150.0, clamp(u.anim_t, 0.0, 1.0));
+    if (p.y > wave_reach_y && abs(p.x - cx) < (half_w + 80.0)) {
         in_active_zone = true;
     }
     // 2. Start Menu Tree, Roots & Searchbar Zone
@@ -523,6 +524,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let aa_tb = max(fwidth(d_taskbar), 0.75);
     let alpha = 1.0 - smoothstep(-aa_tb, aa_tb, d_taskbar);
+    if (alpha <= 0.001 && !is_start_active && !is_flyout_active) {
+        discard;
+    }
     if (alpha > 0.001) {
         let bar_left = cx - half_w;
         let bar_top = bottom_y - base_height;
@@ -619,122 +623,136 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let glob_alpha = alpha * wave_a;
 
-    // Bibir atas panel taskbar pada kondisi anim_t saat ini (untuk pangkal jalur flyout)
-    let fly_bar_top = bottom_y - (mix(8.0, u.bar_height, smooth_t) + overshoot);
+    var mid_col = color;
+    var mid_alpha = glob_alpha;
 
-    // Render Flyout Non-Border di atas tray
-    let fly_res = render_non_border_flyout(
-        p,
-        u.mouse_pos,
-        u.time,
-        u.flyout_info.x,
-        u.flyout_info.y,
-        u.flyout_info.z,
-        u.flyout_info.w,
-        vec2<f32>(u.flyout_meta.x, u.flyout_meta.y),
-        vec2<f32>(u.flyout_meta.z, u.flyout_meta.w),
-        fly_bar_top
-    );
+    if (is_start_active) {
+        // 1. STUMP SAKURA (Z-index di BELAKANG Taskbar)
+        let g_stump = clamp(u.tree_style.x, 0.0, 1.05);
+        var bg_col = hex(16.0, 16.0, 24.0);
+        var bg_alpha = 0.0;
+        var stump_res = vec4<f32>(bg_col, bg_alpha);
+        if (g_stump > 0.003) {
+            stump_res = render_sakura_stump(
+                p,
+                cx,
+                half_w,
+                u.bar_width,
+                bottom_y,
+                u.screen_size.y,
+                smooth_t,
+                overshoot,
+                g_stump,
+                u.time,
+                bg_col,
+                bg_alpha
+            );
+        }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // LAYER COMPOSITING 3D:
-    // Layer 1 (Paling Belakang): Stump Batang Utama Sakura
-    // Layer 2 (Tengah): Ombak Taskbar Kanagawa & Widget Icons
-    // Layer 3 (Paling Depan): Seed Tracer & Akar Nebari Berserabut
-    // ─────────────────────────────────────────────────────────────────────────
+        // 2. TASKBAR OMBAK (Di DEPAN Stump, sehingga bibir ombak menutupi bagian bawah stump)
+        mid_col = stump_res.rgb;
+        mid_alpha = stump_res.a;
+        if (glob_alpha > 0.001) {
+            mid_col = mix(mid_col, color, glob_alpha);
+            mid_alpha = max(mid_alpha, glob_alpha);
+        }
 
-    // 1. STUMP SAKURA (Z-index di BELAKANG Taskbar)
-    let g_stump = clamp(u.tree_style.x, 0.0, 1.05);
-    var bg_col = hex(16.0, 16.0, 24.0);
-    var bg_alpha = 0.0;
-    let stump_res = render_sakura_stump(
-        p,
-        cx,
-        half_w,
-        u.bar_width,
-        bottom_y,
-        u.screen_size.y,
-        smooth_t,
-        overshoot,
-        g_stump,
-        u.time,
-        bg_col,
-        bg_alpha
-    );
+        // 3. SEED TRACER & AKAR NEBARI (Di PALING DEPAN, memeluk bibir ombak dan pangkal batang dari depan)
+        let bar_left = cx - half_w;
+        let p2_c = clamp(u.start_info.y, 0.0, 1.05);
+        let win_center_tracer = vec2<f32>(bar_left + 54.0, bottom_y - base_height * 0.54);
+        var seed_res = vec4<f32>(mid_col, mid_alpha);
+        if (p2_c > 0.003) {
+            seed_res = render_sakura_seed_tracer(
+                p,
+                cx,
+                half_w,
+                bar_left,
+                bottom_y,
+                smooth_t,
+                overshoot,
+                win_center_tracer,
+                p2_c,
+                u.time,
+                mid_col,
+                mid_alpha
+            );
+        }
 
-    // 2. TASKBAR OMBAK (Di DEPAN Stump, sehingga bibir ombak menutupi bagian bawah stump)
-    var mid_col = stump_res.rgb;
-    var mid_alpha = stump_res.a;
-    if (glob_alpha > 0.001) {
-        mid_col = mix(mid_col, color, glob_alpha);
-        mid_alpha = max(mid_alpha, glob_alpha);
+        let g_root = clamp(u.start_info.z, 0.0, 1.05);
+        var root_res = seed_res;
+        if (g_root > 0.003) {
+            root_res = render_sakura_roots(
+                p,
+                cx,
+                half_w,
+                bar_left,
+                bottom_y,
+                smooth_t,
+                overshoot,
+                g_root,
+                u.time,
+                seed_res.rgb,
+                seed_res.a
+            );
+        }
+
+        var tracer_col = root_res.rgb;
+        var tracer_alpha = root_res.a;
+
+        // 4. ZEN SEARCH PILL (Luxury Kintsugi & Urushi Lacquer Floating Search Bar)
+        let search_t = clamp(u.start_fx.w, 0.0, 1.05);
+        if (search_t > 0.003) {
+            let pill_res = render_zen_search_pill(
+                p,
+                cx,
+                half_w,
+                bottom_y,
+                smooth_t,
+                overshoot,
+                search_t,
+                u.time,
+                u.mouse_pos,
+                tracer_col,
+                tracer_alpha
+            );
+            tracer_col = pill_res.rgb;
+            tracer_alpha = pill_res.a;
+        }
+
+        mid_col = tracer_col;
+        mid_alpha = tracer_alpha;
     }
 
-    // 3. SEED TRACER & AKAR NEBARI (Di PALING DEPAN, memeluk bibir ombak dan pangkal batang dari depan)
-    let bar_left = cx - half_w;
-    let p2_c = clamp(u.start_info.y, 0.0, 1.05);
-    let win_center_tracer = vec2<f32>(bar_left + 54.0, bottom_y - base_height * 0.54);
-    let seed_res = render_sakura_seed_tracer(
-        p,
-        cx,
-        half_w,
-        bar_left,
-        bottom_y,
-        smooth_t,
-        overshoot,
-        win_center_tracer,
-        p2_c,
-        u.time,
-        mid_col,
-        mid_alpha
-    );
-
-    let g_root = clamp(u.start_info.z, 0.0, 1.05);
-    let root_res = render_sakura_roots(
-        p,
-        cx,
-        half_w,
-        bar_left,
-        bottom_y,
-        smooth_t,
-        overshoot,
-        g_root,
-        u.time,
-        seed_res.rgb,
-        seed_res.a
-    );
-
-    var tracer_col = root_res.rgb;
-    var tracer_alpha = root_res.a;
-
-    // 4. ZEN SEARCH PILL (Luxury Kintsugi & Urushi Lacquer Floating Search Bar)
-    let search_t = clamp(u.start_fx.w, 0.0, 1.05);
-    if (search_t > 0.003) {
-        let pill_res = render_zen_search_pill(
+    var fly_col = vec3<f32>(0.0);
+    var fly_alpha = 0.0;
+    if (is_flyout_active) {
+        // Bibir atas panel taskbar pada kondisi anim_t saat ini (untuk pangkal jalur flyout)
+        let fly_bar_top = bottom_y - (mix(8.0, u.bar_height, smooth_t) + overshoot);
+        let fly_res = render_non_border_flyout(
             p,
-            cx,
-            half_w,
-            bottom_y,
-            smooth_t,
-            overshoot,
-            search_t,
-            u.time,
             u.mouse_pos,
-            tracer_col,
-            tracer_alpha
+            u.time,
+            u.flyout_info.x,
+            u.flyout_info.y,
+            u.flyout_info.z,
+            u.flyout_info.w,
+            vec2<f32>(u.flyout_meta.x, u.flyout_meta.y),
+            vec2<f32>(u.flyout_meta.z, u.flyout_meta.w),
+            fly_bar_top
         );
-        tracer_col = pill_res.rgb;
-        tracer_alpha = pill_res.a;
+        fly_col = fly_res.col;
+        fly_alpha = fly_res.alpha;
     }
 
-    let final_alpha = max(tracer_alpha, fly_res.alpha);
+    let final_alpha = max(mid_alpha, fly_alpha);
     if (final_alpha <= 0.001) {
         discard;
     }
 
-    var final_color = tracer_col;
-    if (fly_res.alpha > 0.0) {
-        final_color = mix(final_color, fly_res.col, fly_res.alpha);
+    var final_color = mid_col;
+    if (fly_alpha > 0.0) {
+        final_color = mix(final_color, fly_col, fly_alpha);
     }
 
     // Premultiplied alpha output: RGB harus dikalikan dengan final_alpha

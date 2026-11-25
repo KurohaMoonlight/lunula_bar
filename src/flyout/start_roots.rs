@@ -62,7 +62,7 @@ fn smoothstep_rs(edge0: f32, edge1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Penipisan nebari bonsai non-linear:
+/// Penipisan nebari pohon sakura non-linear:
 /// - `long_right = true`: tebal berotot di pangkal nebari, lalu menipis progresif & kontinu sepanjang
 ///   jalur panjang ke kanan hingga menjadi filamen energi cair setipis benang di ujung jauh.
 /// - `long_right = false`: penipisan organik untuk akar penahan angin sisi kiri.
@@ -191,7 +191,7 @@ fn emit_smooth_chain(
     anchors
 }
 
-/// Generator akar bonsai Fukinagashi energi cair lembut:
+/// Generator akar pohon sakura Fukinagashi energi cair lembut:
 /// - Sisi KIRI diperkaya (5 rantai = 32 segmen): akar penahan angin (*windward tension roots*) yang
 ///   mencengkeram penuh lengkungan sudut & bahu kiri taskbar hingga ke tepi kiri-bawah beserta 2 cabang halus.
 /// - Sisi KANAN diperpanjang jauh (7 rantai = 63 segmen, hingga ~770px relatif): menjalar luwes di zona
