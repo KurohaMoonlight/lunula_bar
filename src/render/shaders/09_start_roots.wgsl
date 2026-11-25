@@ -2243,6 +2243,9 @@ fn render_zen_search_pill(
             col = mix(col, lantern_glass, pill_alpha);
             alpha = max(alpha, pill_alpha);
         }
+            col = mix(col, lantern_glass, pill_alpha);
+            alpha = max(alpha, pill_alpha);
+        }
     }
 
     return vec4<f32>(col, alpha);
